@@ -458,43 +458,39 @@ lemma derives_map {w₁ w₂ : List (Symbol T g₀.NT)}
   | refl => rfl
   | tail _ orig ih => exact ih.trans_produces (produces_map orig)
 
-/-- A `Symbol` comes from the embedding; terminals are included since the embedding is identity on
-terminals. -/
-def FromEmbeddingOrTerminal (G : g₀.Embedding g) (s : Symbol T g.NT) : Prop :=
+/-- A `Symbol` comes from the embedding. -/
+def FromEmbedding (G : g₀.Embedding g) (s : Symbol T g.NT) : Prop :=
   ∃ s₀ : Symbol T g₀.NT, G.embed s₀ = s
 
-/-- A string is from the embedding or terminals iff every `Symbol` in it is. -/
-def FromEmbeddingOrTerminalString (G : g₀.Embedding g) (s : List (Symbol T g.NT)) : Prop :=
-  ∀ ⦃a : Symbol T g.NT⦄, a ∈ s → FromEmbeddingOrTerminal G a
+/-- A string is from the embedding iff every `Symbol` in it is. -/
+def FromEmbeddingString (G : g₀.Embedding g) (s : List (Symbol T g.NT)) : Prop :=
+  ∀ ⦃a : Symbol T g.NT⦄, a ∈ s → FromEmbedding G a
 
-lemma fromEmbeddingOrTerminalString_singleton {s : Symbol T g.NT}
-    (hs : G.FromEmbeddingOrTerminal s) : G.FromEmbeddingOrTerminalString [s] := by
-  simpa [FromEmbeddingOrTerminalString] using hs
+lemma fromEmbeddingString_singleton {s : Symbol T g.NT}
+    (hs : G.FromEmbedding s) : G.FromEmbeddingString [s] := by
+  simpa [FromEmbeddingString] using hs
 
 /-- Production by `G.g` can be mirrored by `G.g₀` production if the first word does not contain any
 nonterminals that `G.g₀` lacks. -/
 lemma produces_filterMap {w₁ w₂ : List (Symbol T g.NT)}
-    (hG : g.Produces w₁ w₂) (hw₁ : G.FromEmbeddingOrTerminalString w₁) :
+    (hG : g.Produces w₁ w₂) (hw₁ : G.FromEmbeddingString w₁) :
     g₀.Produces
       (w₁.filterMap G.project)
       (w₂.filterMap G.project) ∧
-    G.FromEmbeddingOrTerminalString w₂ := by
+    G.FromEmbeddingString w₂ := by
   rcases hG with ⟨r, rin, hr⟩
   rcases hr.exists_parts with ⟨u, v, bef, aft⟩
   rw [bef] at hw₁
   have from_embedding_or_terminal_input :
-      G.FromEmbeddingOrTerminal (Symbol.nonterminal r.input) := by
+      G.FromEmbedding (Symbol.nonterminal r.input) := by
     apply hw₁
     simp
   rcases from_embedding_or_terminal_input with ⟨s₀, hs₀⟩
   cases s₀ with
   | terminal t =>
-    have : (Symbol.terminal t : Symbol T g.NT) = Symbol.nonterminal r.input := by
-      simpa [embed_terminal_apply] using hs₀
-    cases this
+    simp [embed_terminal_apply] at hs₀
   | nonterminal n₀ =>
-    have hr_eq : G.embed (.nonterminal n₀) = .nonterminal r.input := by
-      simpa using hs₀
+    have hr_eq : G.embed (.nonterminal n₀) = .nonterminal r.input := hs₀
     rcases G.preimage_of_rules_map r rin hr_eq with ⟨r₀, hr₀, hrr₀⟩
     constructor
     · refine ⟨r₀, hr₀, ?_⟩
@@ -504,8 +500,7 @@ lemma produces_filterMap {w₁ w₂ : List (Symbol T g.NT)}
         ext x
         simp [project_embed_apply]
       constructor
-      ·
-        have middle :
+      · have middle :
             List.filterMap G.project [Symbol.nonterminal (G.embedNT r₀.input)] =
               [Symbol.nonterminal r₀.input] := by
           simp [List.filterMap, project_nonterminal_embedNT]
@@ -515,7 +510,7 @@ lemma produces_filterMap {w₁ w₂ : List (Symbol T g.NT)}
             List.filterMap_map, List.filterMap_some, ← hrr₀, correct_inverse]
           using congr_arg (List.filterMap G.project) aft
     · rw [aft, ← hrr₀]
-      simp only [FromEmbeddingOrTerminalString, List.forall_mem_append] at hw₁ ⊢
+      simp only [FromEmbeddingString, List.forall_mem_append] at hw₁ ⊢
       refine ⟨⟨hw₁.left.left, ?_⟩, hw₁.right⟩
       intro a ha
       dsimp only [ContextFreeRule.mapSymbol, mapRule] at ha
@@ -525,11 +520,11 @@ lemma produces_filterMap {w₁ w₂ : List (Symbol T g.NT)}
       simpa using hs
 
 private lemma derives_filterMap_aux {w₁ w₂ : List (Symbol T g.NT)}
-    (hG : g.Derives w₁ w₂) (hw₁ : G.FromEmbeddingOrTerminalString w₁) :
+    (hG : g.Derives w₁ w₂) (hw₁ : G.FromEmbeddingString w₁) :
     g₀.Derives
       (w₁.filterMap G.project)
       (w₂.filterMap G.project) ∧
-    G.FromEmbeddingOrTerminalString w₂ := by
+    G.FromEmbeddingString w₂ := by
   induction hG with
   | refl => exact ⟨by rfl, hw₁⟩
   | tail _ orig ih =>
@@ -539,7 +534,7 @@ private lemma derives_filterMap_aux {w₁ w₂ : List (Symbol T g.NT)}
 /-- Derivation by `G.g` can be mirrored by `G.g₀` derivation if the starting word does not contain
 any nonterminals that `G.g₀` lacks. -/
 lemma derives_filterMap {w₁ w₂ : List (Symbol T g.NT)}
-    (hG : g.Derives w₁ w₂) (hw₁ : G.FromEmbeddingOrTerminalString w₁) :
+    (hG : g.Derives w₁ w₂) (hw₁ : G.FromEmbeddingString w₁) :
     g₀.Derives
       (w₁.filterMap G.project)
       (w₂.filterMap G.project) :=
