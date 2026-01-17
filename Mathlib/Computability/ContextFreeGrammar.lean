@@ -375,64 +375,28 @@ structure ContextFreeGrammar.Embedding (g₀ g : ContextFreeGrammar T) where
   project : Symbol T g.NT → Option (Symbol T g₀.NT)
   /-- The two mappings are essentially inverses. -/
   project_embed (s : Symbol T g₀.NT) : project (embed s) = some s
-  /-- Embedding preserves terminals. -/
-  embed_terminal (t : T) : embed (.terminal t) = .terminal t
+  /-- Embedding sends terminals to terminals. -/
+  embed_terminal (t : T) : ∃ t' : T, embed (.terminal t) = .terminal t'
   /-- Embedding sends nonterminals to nonterminals. -/
   embed_nonterminal (n₀ : g₀.NT) : ∃ n : g.NT, embed (.nonterminal n₀) = .nonterminal n
   /-- Each rule of the smaller grammar has a corresponding rule in the bigger grammar. -/
   embed_mem_rules (r : ContextFreeRule T g₀.NT):
-    r ∈ g₀.rules →
-      (ContextFreeRule.mapSymbol (T := T) r embed
-        (Classical.choose (embed_nonterminal r.input))) ∈ g.rules
+    r ∈ g₀.rules → ∀ n : g.NT,
+      embed (.nonterminal r.input) = .nonterminal n →
+        (ContextFreeRule.mapSymbol (T := T) r embed n) ∈ g.rules
   /-- Each rule of the bigger grammar whose input nonterminal is recognized by the smaller grammar
   has a corresponding rule in the smaller grammar. -/
   preimage_of_rules (r : ContextFreeRule T g.NT) :
     r ∈ g.rules → ∀ n₀ : g₀.NT,
       embed (.nonterminal n₀) = .nonterminal r.input →
-        ∃ r₀ ∈ g₀.rules,
-          ContextFreeRule.mapSymbol (T := T) r₀ embed
-            (Classical.choose (embed_nonterminal r₀.input)) = r
+        ∃ r₀ ∈ g₀.rules, r₀.input = n₀ ∧
+          ContextFreeRule.mapSymbol (T := T) r₀ embed r.input = r
 
 namespace ContextFreeGrammar.Embedding
 variable {g₀ g : ContextFreeGrammar T} {G : g₀.Embedding g}
 
-noncomputable def embedNT (G : g₀.Embedding g) (n₀ : g₀.NT) : g.NT :=
-  Classical.choose (G.embed_nonterminal n₀)
-
-noncomputable def mapRule (G : g₀.Embedding g) (r : ContextFreeRule T g₀.NT) :
-    ContextFreeRule T g.NT :=
-  ContextFreeRule.mapSymbol (T := T) r G.embed (G.embedNT r.input)
-
-@[simp] lemma mapRule_input (r : ContextFreeRule T g₀.NT) :
-    (G.mapRule r).input = G.embedNT r.input := rfl
-
-lemma mapRule_mem_rules (r : ContextFreeRule T g₀.NT) (hr : r ∈ g₀.rules) :
-    G.mapRule r ∈ g.rules := by
-  simpa [mapRule, embedNT] using G.embed_mem_rules r hr
-
-lemma preimage_of_rules_map (r : ContextFreeRule T g.NT) (hr : r ∈ g.rules)
-    {n₀ : g₀.NT} (hn : G.embed (.nonterminal n₀) = .nonterminal r.input) :
-    ∃ r₀ ∈ g₀.rules, G.mapRule r₀ = r := by
-  simpa [mapRule, embedNT] using G.preimage_of_rules r hr n₀ hn
-
-@[simp] lemma embed_terminal_apply (t : T) : G.embed (.terminal t) = .terminal t :=
-  G.embed_terminal t
-
-@[simp] lemma embed_nonterminal_apply (n : g₀.NT) :
-    G.embed (.nonterminal n) = .nonterminal (G.embedNT n) := by
-  simpa [embedNT] using Classical.choose_spec (G.embed_nonterminal n)
-
-@[simp] lemma project_terminal_apply (t : T) : G.project (.terminal t) = some (.terminal t) :=
-  by simpa [embed_terminal_apply] using (G.project_embed (.terminal t))
-
 @[simp] lemma project_embed_apply (s : Symbol T g₀.NT) : G.project (G.embed s) = some s :=
   G.project_embed s
-
-@[simp] lemma project_nonterminal_embedNT (n : g₀.NT) :
-    G.project (.nonterminal (G.embedNT n)) = some (.nonterminal n) := by
-  have h : G.embed (.nonterminal n) = .nonterminal (G.embedNT n) := by
-    simp [embed_nonterminal_apply]
-  simpa [h] using (G.project_embed_apply (.nonterminal n))
 
 /-- Production by `G.g₀` can be mirrored by production by `G.g`. -/
 lemma produces_map {w₁ w₂ : List (Symbol T g₀.NT)}
@@ -440,14 +404,13 @@ lemma produces_map {w₁ w₂ : List (Symbol T g₀.NT)}
     g.Produces (w₁.map G.embed) (w₂.map G.embed) := by
   rcases hG with ⟨r, rin, hr⟩
   rcases hr.exists_parts with ⟨u, v, bef, aft⟩
-  refine ⟨G.mapRule r, G.mapRule_mem_rules r rin, ?_⟩
+  rcases G.embed_nonterminal r.input with ⟨n, hn⟩
+  refine ⟨ContextFreeRule.mapSymbol (T := T) r G.embed n,
+    G.embed_mem_rules r rin n hn, ?_⟩
   rw [ContextFreeRule.rewrites_iff]
   refine ⟨u.map G.embed, v.map G.embed, ?_, ?_⟩
-  · have mid :
-      [Symbol.nonterminal (G.mapRule r).input] =
-        [G.embed (.nonterminal r.input)] := by
-      simp [embed_nonterminal_apply]
-    simpa only [List.map_append, mid] using congr_arg (List.map G.embed) bef
+  · simpa [ContextFreeRule.mapSymbol, hn, List.map_append] using
+      congr_arg (List.map G.embed) bef
   · simpa only [List.map_append] using congr_arg (List.map G.embed) aft
 
 /-- Derivation by `G.g₀` can be mirrored by derivation by `G.g`. -/
@@ -488,10 +451,13 @@ lemma produces_filterMap {w₁ w₂ : List (Symbol T g.NT)}
   rcases from_embedding_or_terminal_input with ⟨s₀, hs₀⟩
   cases s₀ with
   | terminal t =>
-    simp [embed_terminal_apply] at hs₀
+    rcases G.embed_terminal t with ⟨t', ht⟩
+    have : (Symbol.terminal t' : Symbol T g.NT) = Symbol.nonterminal r.input := by
+      simp [ht] at hs₀
+    cases this
   | nonterminal n₀ =>
     have hr_eq : G.embed (.nonterminal n₀) = .nonterminal r.input := hs₀
-    rcases G.preimage_of_rules_map r rin hr_eq with ⟨r₀, hr₀, hrr₀⟩
+    rcases G.preimage_of_rules r rin n₀ hr_eq with ⟨r₀, hr₀, hr₀_input, hrr₀⟩
     constructor
     · refine ⟨r₀, hr₀, ?_⟩
       rw [ContextFreeRule.rewrites_iff]
@@ -500,20 +466,42 @@ lemma produces_filterMap {w₁ w₂ : List (Symbol T g.NT)}
         ext x
         simp [project_embed_apply]
       constructor
-      · have middle :
-            List.filterMap G.project [Symbol.nonterminal (G.embedNT r₀.input)] =
+      · have hproj : G.project (.nonterminal r.input) = some (.nonterminal r₀.input) := by
+          have : G.embed (.nonterminal r₀.input) = .nonterminal r.input := by
+            simpa [hr₀_input] using hr_eq
+          simpa [this] using G.project_embed (.nonterminal r₀.input)
+        have middle :
+            List.filterMap G.project [Symbol.nonterminal r.input] =
               [Symbol.nonterminal r₀.input] := by
-          simp [List.filterMap, project_nonterminal_embedNT]
-        simpa only [List.filterMap_append, ContextFreeRule.mapSymbol, mapRule, ← hrr₀, middle]
-          using congr_arg (List.filterMap G.project) bef
-      · simpa only [List.filterMap_append, ContextFreeRule.mapSymbol, mapRule,
-            List.filterMap_map, List.filterMap_some, ← hrr₀, correct_inverse]
-          using congr_arg (List.filterMap G.project) aft
+          simp [List.filterMap, hproj]
+        have bef' := congr_arg (List.filterMap G.project) bef
+        have bef'' :
+            List.filterMap G.project w₁ =
+              List.filterMap G.project u ++ [Symbol.nonterminal r₀.input] ++
+                List.filterMap G.project v := by
+          -- expand filterMap over the two appends explicitly
+          have bef₁ := bef'
+          -- re-associate so we can split twice
+          rw [List.append_assoc] at bef₁
+          rw [List.filterMap_append] at bef₁
+          rw [List.filterMap_append] at bef₁
+          simpa [middle] using bef₁
+        simpa [ContextFreeRule.mapSymbol, hrr₀] using bef''
+      · have aft' := congr_arg (List.filterMap G.project) aft
+        have houtput : r.output = r₀.output.map G.embed := by
+          simpa [ContextFreeRule.mapSymbol] using (congrArg ContextFreeRule.output hrr₀).symm
+        have aft'' :
+            List.filterMap G.project w₂ =
+              List.filterMap G.project u ++
+                List.filterMap G.project (r₀.output.map G.embed) ++
+                List.filterMap G.project v := by
+          simpa [List.filterMap_append, houtput] using aft'
+        simpa [List.filterMap_map, List.filterMap_some, correct_inverse] using aft''
     · rw [aft, ← hrr₀]
       simp only [FromEmbeddingString, List.forall_mem_append] at hw₁ ⊢
       refine ⟨⟨hw₁.left.left, ?_⟩, hw₁.right⟩
       intro a ha
-      dsimp only [ContextFreeRule.mapSymbol, mapRule] at ha
+      dsimp only [ContextFreeRule.mapSymbol] at ha
       rw [List.mem_map] at ha
       rcases ha with ⟨s, -, hs⟩
       refine ⟨s, ?_⟩
