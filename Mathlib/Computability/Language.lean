@@ -194,6 +194,7 @@ theorem map_id (l : Language α) : map id l = l := by simp [map]
 theorem map_map (g : β → γ) (f : α → β) (l : Language α) : map g (map f l) = map (g ∘ f) l := by
   simp [map, image_image]
 
+
 lemma mem_kstar_iff_exists_nonempty {x : List α} :
     x ∈ l∗ ↔ ∃ S : List (List α), x = S.flatten ∧ ∀ y ∈ S, y ∈ l ∧ y ≠ [] := by
   constructor
@@ -424,3 +425,55 @@ deriving
   DecidableEq, Repr, Fintype
 
 attribute [nolint docBlame] Symbol.proxyType Symbol.proxyTypeEquiv
+
+/-- Substitute a single terminal `t` with a language `s`, leaving other terminals unchanged. -/
+def subst (t : α) (s : Language α) (a : α) : Language α := by
+  classical
+  exact if a = t then s else { [a] }
+
+/-- The substitution language based on a word is all words resulting
+from catenating the non-substituted parts with the substituted ones. -/
+def substword (t : α) (s : Language α) (w : List α) : Language α :=
+  (w.map (subst t s)).prod
+
+@[simp]
+lemma substword_append (t : α) (s : Language α) (x y : List α) :
+    substword t s (x ++ y) = substword t s x * substword t s y := by
+  simp [substword, List.map_append, List.prod_append]
+
+@[simp]
+lemma substword_head (t a : α) (s : Language α) (tail : List α) :
+    substword t s (a :: tail) = subst t s a * substword t s tail := by
+  simp [substword]
+
+lemma singleton_language_prod (x y : List α) :
+  ({x} : Language α) * ({y} : Language α) = ({x ++ y} : Language α) := by
+  ext z
+  constructor
+  · intro hz
+    rcases (Language.mem_mul.mp hz) with ⟨a, ha, b, hb, rfl⟩
+    subst a b
+    grind
+  · intro hz
+    subst z
+    apply Language.append_mem_mul
+    repeat' grind
+
+@[simp]
+lemma substword_eq_singleton_of_not_mem (t : α) (S : Language α) {w : List α} (hw : t ∉ w) :
+    substword t S w = {w} := by
+  induction w with
+  | nil =>
+      simp [substword, Language.one_def]
+  | cons a w ih =>
+      have hne : a ≠ t := by
+        intro h
+        apply hw
+        simp [h]
+      have hw' : t ∉ w := by
+        intro h
+        apply hw
+        simp [h]
+      have ih' : substword t S w = {w} := by
+        simpa [substword] using (ih hw')
+      simp [substword_head, subst, hne, ih', singleton_language_prod]
