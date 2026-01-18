@@ -1740,6 +1740,21 @@ noncomputable def substg₂_embedding (t : T) (g₁ g₂ : ContextFreeGrammar T)
         by simpa [ContextFreeRule.map, ContextFreeRule.mapSymbol, Symbol.map] using hr_eq
       simpa [hinput', hr_input] using this
 
+theorem ContextFreeGrammar.subst_lang (t: T) (g₁ g₂ : ContextFreeGrammar T)
+    [DecidableEq T] :
+    (substsgrammar t g₁ g₂).language = (substlang t g₁.language g₂.language) := by
+    refine Language.ext_iff.mpr ?_
+    intro w
+    constructor
+    · sorry
+    · intro w_in_sublang
+      have w'_in_origlang: ∃w' ∈ g₂.language, w ∈ substword t g₁.language w' := by
+        simp only [substlang, mem_language_iff] at w_in_sublang
+        exact Set.inter_nonempty.mp w_in_sublang
+      obtain ⟨w', w'_in_origlang⟩ := w'_in_origlang
+      rcases w'_in_origlang with ⟨ha, hb⟩
+      sorry
+
 end ContextFreeGrammar
 
 end substitution
