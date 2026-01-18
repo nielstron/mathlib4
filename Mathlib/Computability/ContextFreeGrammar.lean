@@ -377,8 +377,6 @@ structure ContextFreeGrammar.Embedding (g₀ g : ContextFreeGrammar T) where
   project : Symbol T g.NT → Option (Symbol T g₀.NT)
   /-- The two mappings are essentially inverses. -/
   project_embed (s : Symbol T g₀.NT) : project (embed s) = some s
-  /-- Embedding sends terminals to terminals. -/
-  embed_terminal (t : T) : ∃ t' : T, embed (.terminal t) = .terminal t'
   /-- Embedding sends nonterminals to nonterminals. -/
   embed_nonterminal (n₀ : g₀.NT) : ∃ n : g.NT, embed (.nonterminal n₀) = .nonterminal n
   /-- Each rule of the smaller grammar has a corresponding rule in the bigger grammar. -/
@@ -438,7 +436,8 @@ lemma fromEmbeddingString_singleton {s : Symbol T g.NT}
 /-- Production by `G.g` can be mirrored by `G.g₀` production if the first word does not contain any
 nonterminals that `G.g₀` lacks. -/
 lemma produces_filterMap {w₁ w₂ : List (Symbol T g.NT)}
-    (hG : g.Produces w₁ w₂) (hw₁ : G.FromEmbeddingString w₁) :
+    (hG : g.Produces w₁ w₂) (hw₁ : G.FromEmbeddingString w₁)
+    (hterm : ∀ t : T, ∃ t' : T, G.embed (.terminal t) = .terminal t') :
     g₀.Produces
       (w₁.filterMap G.project)
       (w₂.filterMap G.project) ∧
@@ -453,7 +452,7 @@ lemma produces_filterMap {w₁ w₂ : List (Symbol T g.NT)}
   rcases from_embedding_or_terminal_input with ⟨s₀, hs₀⟩
   cases s₀ with
   | terminal t =>
-    rcases G.embed_terminal t with ⟨t', ht⟩
+    rcases hterm t with ⟨t', ht⟩
     have : (Symbol.terminal t' : Symbol T g.NT) = Symbol.nonterminal r.input := by
       simp [ht] at hs₀
     cases this
@@ -510,7 +509,8 @@ lemma produces_filterMap {w₁ w₂ : List (Symbol T g.NT)}
       simpa using hs
 
 private lemma derives_filterMap_aux {w₁ w₂ : List (Symbol T g.NT)}
-    (hG : g.Derives w₁ w₂) (hw₁ : G.FromEmbeddingString w₁) :
+    (hG : g.Derives w₁ w₂) (hw₁ : G.FromEmbeddingString w₁)
+    (hterm : ∀ t : T, ∃ t' : T, G.embed (.terminal t) = .terminal t') :
     g₀.Derives
       (w₁.filterMap G.project)
       (w₂.filterMap G.project) ∧
@@ -518,17 +518,18 @@ private lemma derives_filterMap_aux {w₁ w₂ : List (Symbol T g.NT)}
   induction hG with
   | refl => exact ⟨by rfl, hw₁⟩
   | tail _ orig ih =>
-    have both := produces_filterMap orig ih.right
+    have both := produces_filterMap orig ih.right hterm
     exact ⟨ContextFreeGrammar.Derives.trans_produces ih.left both.left, both.right⟩
 
 /-- Derivation by `G.g` can be mirrored by `G.g₀` derivation if the starting word does not contain
 any nonterminals that `G.g₀` lacks. -/
 lemma derives_filterMap {w₁ w₂ : List (Symbol T g.NT)}
-    (hG : g.Derives w₁ w₂) (hw₁ : G.FromEmbeddingString w₁) :
+    (hG : g.Derives w₁ w₂) (hw₁ : G.FromEmbeddingString w₁)
+    (hterm : ∀ t : T, ∃ t' : T, G.embed (.terminal t) = .terminal t') :
     g₀.Derives
       (w₁.filterMap G.project)
       (w₂.filterMap G.project) :=
-  (derives_filterMap_aux hG hw₁).left
+  (derives_filterMap_aux hG hw₁ hterm).left
 
 end ContextFreeGrammar.Embedding
 end embed_project
@@ -646,9 +647,6 @@ private def g₁g : ContextFreeGrammar.Embedding g₁ (g₁.union g₂) where
   project_embed := by
     intro s
     cases s <;> rfl
-  embed_terminal := by
-    intro t
-    exact ⟨t, rfl⟩
   embed_nonterminal := by
     intro n₀
     exact ⟨some (Sum.inl n₀), rfl⟩
@@ -725,9 +723,6 @@ private def g₂g : ContextFreeGrammar.Embedding g₂ (g₁.union g₂) where
   project_embed := by
     intro s
     cases s <;> rfl
-  embed_terminal := by
-    intro t
-    exact ⟨t, rfl⟩
   embed_nonterminal := by
     intro n₀
     exact ⟨some (Sum.inr n₀), rfl⟩
@@ -864,6 +859,9 @@ private lemma in_left_of_in_union (hw : (g₁.union g₂).Derives
       simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
       rw [ha]
       exact ⟨Symbol.nonterminal g₁.initial, by simp [g₁g, Symbol.map]⟩)
+    (by
+      intro t
+      exact ⟨t, by simp [g₁g, Symbol.map]⟩)
   have h' : g₁.Derives
       (List.filterMap g₁g.project
         [Symbol.nonterminal (some (Sum.inl g₁.initial) : (g₁.union g₂).NT)])
@@ -885,6 +883,9 @@ private lemma in_right_of_in_union (hw : (g₁.union g₂).Derives
       simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
       rw [ha]
       exact ⟨Symbol.nonterminal g₂.initial, by simp [g₂g, Symbol.map]⟩)
+    (by
+      intro t
+      exact ⟨t, by simp [g₂g, Symbol.map]⟩)
   have h' : g₂.Derives
       (List.filterMap g₂g.project
         [Symbol.nonterminal (some (Sum.inr g₂.initial) : (g₁.union g₂).NT)])
@@ -1070,9 +1071,6 @@ private def g₁g_concat : ContextFreeGrammar.Embedding g₁ (g₁.concat g₂) 
   project_embed := by
     intro s
     cases s <;> rfl
-  embed_terminal := by
-    intro t
-    exact ⟨t, rfl⟩
   embed_nonterminal := by
     intro n₀
     exact ⟨some (Sum.inl n₀), rfl⟩
@@ -1144,9 +1142,6 @@ private def g₂g_concat : ContextFreeGrammar.Embedding g₂ (g₁.concat g₂) 
   project_embed := by
     intro s
     cases s <;> rfl
-  embed_terminal := by
-    intro t
-    exact ⟨t, rfl⟩
   embed_nonterminal := by
     intro n₀
     exact ⟨some (Sum.inr n₀), rfl⟩
@@ -1420,7 +1415,13 @@ lemma ContextFreeGrammar.mem_concat_language_iff_mem_mul :
           rw [ha]
           exact ⟨Symbol.nonterminal g₂.initial, by simp [g₂g_concat, Symbol.map]⟩
         have hu_filter := (@g₁g_concat T g₁ g₂).derives_filterMap hu'' feot_u
+          (by
+            intro t
+            exact ⟨t, by simp [g₁g_concat, Symbol.map]⟩)
         have hv_filter := (@g₂g_concat T g₁ g₂).derives_filterMap hv'' feot_v
+          (by
+            intro t
+            exact ⟨t, by simp [g₂g_concat, Symbol.map]⟩)
         -- Extract the terminal words
         set w₁ := extractTerminals u''
         set w₂ := extractTerminals v''
