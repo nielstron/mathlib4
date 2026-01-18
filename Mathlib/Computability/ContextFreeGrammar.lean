@@ -1337,22 +1337,22 @@ noncomputable def substsgrammar (t : T) (g₁ g₂ : ContextFreeGrammar T) :
       | mk r₁_in r₁_out =>
         cases r₂ with
         | mk r₂_in r₂_out =>
-          simp [f₁, ContextFreeRule.mk.injEq] at h
+          simp only [ContextFreeRule.mk.injEq, Sum.inl.injEq, f₁] at h
           obtain ⟨hin, hout⟩ := h
           apply ContextFreeRule.ext
           · simpa using hin
           · exact (List.map_inj_right (substSymbol_injective t g₁ g₂)).1 hout
     have h₂ : f₂.Injective := by
       intro r₁ r₂ h
-      simp [f₂, ContextFreeRule.map, ContextFreeRule.mk.injEq] at h
+      simp only [ContextFreeRule.map, ContextFreeRule.mk.injEq, Sum.inr.injEq, f₂] at h
       obtain ⟨hin, hout⟩ := h
       apply ContextFreeRule.ext
       · simpa using hin
       · have :
             (Symbol.map (T := T) (N₀ := g₂.NT) (N := g₁.NT ⊕ g₂.NT) Sum.inr).Injective := by
           intro s1 s2 hs
-          cases s1 <;> cases s2 <;> simp [Symbol.map] at hs ⊢
-        exact Sum.inr_injective (Symbol.nonterminal.inj hs)
+          cases s1 <;> cases s2 <;> simp only [Symbol.map, Symbol.terminal.injEq] at hs ⊢
+          repeat' grind
         exact (List.map_inj_right this).mp hout
     let mapped1 : Finset (ContextFreeRule T (g₁.NT ⊕ g₂.NT)) := g₁.rules.map ⟨f₁, h₁⟩
     let mapped2 : Finset (ContextFreeRule T (g₁.NT ⊕ g₂.NT)) := g₂.rules.map ⟨f₂, h₂⟩
