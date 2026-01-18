@@ -1284,3 +1284,84 @@ theorem Language.IsContextFree.mul {L₁ L₂ : Language T} :
     exact ⟨w₁, hw₁, w₂, hw₂, heq.symm⟩
 
 end closure_concatenation
+
+section substitution
+
+namespace ContextFreeGrammar
+
+/-- Map symbols of the original grammar, replacing terminal `t` by the start symbol of `g₂`. -/
+def substSymbol (t : T) (g₁ g₂ : ContextFreeGrammar T) [DecidableEq T] :
+    Symbol T g₁.NT → Symbol T (g₁.NT ⊕ g₂.NT)
+  | .terminal a => if a = t then .nonterminal (Sum.inr g₂.initial) else .terminal a
+  | .nonterminal n => .nonterminal (Sum.inl n)
+
+lemma substSymbol_injective (t : T) (g₁ g₂ : ContextFreeGrammar T) [DecidableEq T] :
+    (substSymbol t g₁ g₂).Injective := by
+  intro s₁ s₂ h
+  cases s₁ with
+  | terminal a =>
+      cases s₂ with
+      | terminal b =>
+          by_cases ha : a = t <;> by_cases hb : b = t
+          · simp [substSymbol, ha, hb] at h; simp [ha, hb]
+          · simp [substSymbol, ha, hb] at h
+          · simp [substSymbol, ha, hb] at h
+          · simp [substSymbol, ha, hb] at h; simp [h]
+      | nonterminal b =>
+          by_cases ha : a = t
+          · simp [substSymbol, ha] at h
+          · simp [substSymbol, ha] at h
+  | nonterminal a =>
+      cases s₂ with
+      | terminal b =>
+          by_cases hb : b = t
+          · simp [substSymbol, hb] at h
+          · simp [substSymbol, hb] at h
+      | nonterminal b =>
+          simpa [substSymbol] using h
+
+/-- Grammar obtained by substituting terminal `t` in `g₁` with the start symbol of `g₂`. -/
+noncomputable def substsgrammar (t : T) (g₁ g₂ : ContextFreeGrammar T) :
+    ContextFreeGrammar T where
+  NT := g₁.NT ⊕ g₂.NT
+  initial := Sum.inl g₁.initial
+  rules := by
+    letI : DecidableEq T := Classical.decEq T
+    let f₁ : ContextFreeRule T g₁.NT → ContextFreeRule T (g₁.NT ⊕ g₂.NT) :=
+      fun r => ⟨Sum.inl r.input, r.output.map (substSymbol t g₁ g₂)⟩
+    let f₂ : ContextFreeRule T g₂.NT → ContextFreeRule T (g₁.NT ⊕ g₂.NT) :=
+      fun r => r.map Sum.inr
+    have h₁ : f₁.Injective := by
+      intro r₁ r₂ h
+      cases r₁ with
+      | mk r₁_in r₁_out =>
+        cases r₂ with
+        | mk r₂_in r₂_out =>
+          simp [f₁, ContextFreeRule.mk.injEq] at h
+          obtain ⟨hin, hout⟩ := h
+          apply ContextFreeRule.ext
+          · simpa using hin
+          · exact (List.map_inj_right (substSymbol_injective t g₁ g₂)).1 hout
+    have h₂ : f₂.Injective := by
+      intro r₁ r₂ h
+      simp [f₂, ContextFreeRule.map, ContextFreeRule.mk.injEq] at h
+      obtain ⟨hin, hout⟩ := h
+      apply ContextFreeRule.ext
+      · simpa using hin
+      · have :
+            (Symbol.map (T := T) (N₀ := g₂.NT) (N := g₁.NT ⊕ g₂.NT) Sum.inr).Injective := by
+          intro s1 s2 hs
+          cases s1 <;> cases s2 <;> simp [Symbol.map] at hs ⊢
+        exact Sum.inr_injective (Symbol.nonterminal.inj hs)
+        exact (List.map_inj_right this).mp hout
+    let mapped1 : Finset (ContextFreeRule T (g₁.NT ⊕ g₂.NT)) := g₁.rules.map ⟨f₁, h₁⟩
+    let mapped2 : Finset (ContextFreeRule T (g₁.NT ⊕ g₂.NT)) := g₂.rules.map ⟨f₂, h₂⟩
+    letI : DecidableEq g₁.NT := Classical.decEq g₁.NT
+    letI : DecidableEq g₂.NT := Classical.decEq g₂.NT
+    letI : DecidableEq (g₁.NT ⊕ g₂.NT) := Classical.decEq _
+    letI : DecidableEq (ContextFreeRule T (g₁.NT ⊕ g₂.NT)) := Classical.decEq _
+    exact mapped1 ∪ mapped2
+
+end ContextFreeGrammar
+
+end substitution
