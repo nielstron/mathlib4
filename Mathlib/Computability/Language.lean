@@ -427,23 +427,23 @@ deriving
 attribute [nolint docBlame] Symbol.proxyType Symbol.proxyTypeEquiv
 
 /-- Substitute a single terminal `t` with a language `s`, leaving other terminals unchanged. -/
-def subst (t : α) (s : Language α) (a : α) : Language α := by
+def subst (t : α) (l : Language α) (a : α) : Language α := by
   classical
-  exact if a = t then s else { [a] }
+  exact if a = t then l else { [a] }
 
 /-- The substitution language based on a word is all words resulting
 from catenating the non-substituted parts with the substituted ones. -/
-def substword (t : α) (s : Language α) (w : List α) : Language α :=
-  (w.map (subst t s)).prod
+def substword (t : α) (l : Language α) (w : List α) : Language α :=
+  (w.map (subst t l)).prod
 
 @[simp]
-lemma substword_append (t : α) (s : Language α) (x y : List α) :
-    substword t s (x ++ y) = substword t s x * substword t s y := by
+lemma substword_append (t : α) (l : Language α) (x y : List α) :
+    substword t l (x ++ y) = substword t l x * substword t l y := by
   simp [substword, List.map_append, List.prod_append]
 
 @[simp]
-lemma substword_head (t a : α) (s : Language α) (tail : List α) :
-    substword t s (a :: tail) = subst t s a * substword t s tail := by
+lemma substword_head (t a : α) (l : Language α) (tail : List α) :
+    substword t l (a :: tail) = subst t l a * substword t l tail := by
   simp [substword]
 
 lemma singleton_language_prod (x y : List α) :
@@ -460,8 +460,8 @@ lemma singleton_language_prod (x y : List α) :
     repeat' grind
 
 @[simp]
-lemma substword_eq_singleton_of_not_mem (t : α) (S : Language α) {w : List α} (hw : t ∉ w) :
-    substword t S w = {w} := by
+lemma substword_eq_singleton_of_not_mem (t : α) (l : Language α) {w : List α} (hw : t ∉ w) :
+    substword t l w = {w} := by
   induction w with
   | nil =>
       simp [substword, Language.one_def]
@@ -474,6 +474,10 @@ lemma substword_eq_singleton_of_not_mem (t : α) (S : Language α) {w : List α}
         intro h
         apply hw
         simp [h]
-      have ih' : substword t S w = {w} := by
+      have ih' : substword t l w = {w} := by
         simpa [substword] using (ih hw')
       simp [substword_head, subst, hne, ih', singleton_language_prod]
+
+/-- Substitute terminals in a language by `substword` and take the union of all results. -/
+def substlang (t : α) (l : Language α) (L : Language α) : Language α :=
+  { w | ∃ v ∈ L, w ∈ substword t l v }
