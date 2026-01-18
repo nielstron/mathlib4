@@ -363,127 +363,158 @@ def ContextFreeRule.map {N₀ N : Type*} (r : ContextFreeRule T N₀) (f : N₀ 
     ContextFreeRule T N :=
   ⟨f r.input, r.output.map (.map f)⟩
 
-/-- An embedding from a context-free grammar `g₀` to a context-free grammar `g` is an embedding
-`embedNT` of the nonterminal symbols from the former to the latter along with a one-sided inverse
-`projectNT` such that all rewrite rules of `g` that end in `embedNT n₀` for some `n₀` come from some
-rule in `g₀`. -/
+/-- Map the output symbols of a `ContextFreeRule`, providing the new input nonterminal. -/
+def ContextFreeRule.mapSymbol {N₀ N : Type*} (r : ContextFreeRule T N₀)
+    (f : Symbol T N₀ → Symbol T N) (input : N) : ContextFreeRule T N :=
+  ⟨input, r.output.map f⟩
+
+/-- An embedding from a context-free grammar `g₀` to a context-free grammar `g` is a map on symbols
+with a one-sided inverse that respects terminals and nonterminals, and preserves rules. -/
 structure ContextFreeGrammar.Embedding (g₀ g : ContextFreeGrammar T) where
-  /-- Mapping nonterminals from the smaller type to the bigger type. -/
-  embedNT : g₀.NT → g.NT
-  /-- Mapping nonterminals from the bigger type to the smaller type. -/
-  projectNT : g.NT → Option g₀.NT
+  /-- Embedding on symbols. -/
+  embed : Symbol T g₀.NT → Symbol T g.NT
+  /-- Projection on symbols. -/
+  project : Symbol T g.NT → Option (Symbol T g₀.NT)
   /-- The two mappings are essentially inverses. -/
-  projectNT_embedNT (n₀ : g₀.NT): projectNT (embedNT n₀) = some n₀
+  project_embed (s : Symbol T g₀.NT) : project (embed s) = some s
+  /-- Embedding sends terminals to terminals. -/
+  embed_terminal (t : T) : ∃ t' : T, embed (.terminal t) = .terminal t'
+  /-- Embedding sends nonterminals to nonterminals. -/
+  embed_nonterminal (n₀ : g₀.NT) : ∃ n : g.NT, embed (.nonterminal n₀) = .nonterminal n
   /-- Each rule of the smaller grammar has a corresponding rule in the bigger grammar. -/
-  embed_mem_rules (r : ContextFreeRule T g₀.NT): r ∈ g₀.rules → r.map embedNT ∈ g.rules
+  embed_mem_rules (r : ContextFreeRule T g₀.NT):
+    r ∈ g₀.rules → ∀ n : g.NT,
+      embed (.nonterminal r.input) = .nonterminal n →
+        (ContextFreeRule.mapSymbol (T := T) r embed n) ∈ g.rules
   /-- Each rule of the bigger grammar whose input nonterminal is recognized by the smaller grammar
   has a corresponding rule in the smaller grammar. -/
   preimage_of_rules (r : ContextFreeRule T g.NT) :
     r ∈ g.rules → ∀ n₀ : g₀.NT,
-      embedNT n₀ = r.input → ∃ r₀ ∈ g₀.rules, r₀.map embedNT = r
+      embed (.nonterminal n₀) = .nonterminal r.input →
+        ∃ r₀ ∈ g₀.rules, r₀.input = n₀ ∧
+          ContextFreeRule.mapSymbol (T := T) r₀ embed r.input = r
 
 namespace ContextFreeGrammar.Embedding
 variable {g₀ g : ContextFreeGrammar T} {G : g₀.Embedding g}
 
+@[simp] lemma project_embed_apply (s : Symbol T g₀.NT) : G.project (G.embed s) = some s :=
+  G.project_embed s
+
 /-- Production by `G.g₀` can be mirrored by production by `G.g`. -/
 lemma produces_map {w₁ w₂ : List (Symbol T g₀.NT)}
     (hG : g₀.Produces w₁ w₂) :
-    g.Produces (w₁.map (Symbol.map G.embedNT)) (w₂.map (Symbol.map G.embedNT)) := by
+    g.Produces (w₁.map G.embed) (w₂.map G.embed) := by
   rcases hG with ⟨r, rin, hr⟩
   rcases hr.exists_parts with ⟨u, v, bef, aft⟩
-  refine ⟨r.map G.embedNT, G.embed_mem_rules r rin, ?_⟩
+  rcases G.embed_nonterminal r.input with ⟨n, hn⟩
+  refine ⟨ContextFreeRule.mapSymbol (T := T) r G.embed n,
+    G.embed_mem_rules r rin n hn, ?_⟩
   rw [ContextFreeRule.rewrites_iff]
-  refine ⟨u.map (.map G.embedNT), v.map (.map G.embedNT), ?_, ?_⟩
-  · simpa only [List.map_append] using congr_arg (List.map (Symbol.map G.embedNT)) bef
-  · simpa only [List.map_append] using congr_arg (List.map (Symbol.map G.embedNT)) aft
+  refine ⟨u.map G.embed, v.map G.embed, ?_, ?_⟩
+  · simpa [ContextFreeRule.mapSymbol, hn, List.map_append] using
+      congr_arg (List.map G.embed) bef
+  · simpa only [List.map_append] using congr_arg (List.map G.embed) aft
 
 /-- Derivation by `G.g₀` can be mirrored by derivation by `G.g`. -/
 lemma derives_map {w₁ w₂ : List (Symbol T g₀.NT)}
     (hG : g₀.Derives w₁ w₂) :
-    g.Derives (w₁.map (Symbol.map G.embedNT)) (w₂.map (Symbol.map G.embedNT)) := by
+    g.Derives (w₁.map G.embed) (w₂.map G.embed) := by
   induction hG with
   | refl => rfl
   | tail _ orig ih => exact ih.trans_produces (produces_map orig)
 
-/-- A `Symbol` comes from the embedding or is a terminal iff it is one of those nonterminals that
-result from projecting or it is any terminal. -/
-inductive FromEmbeddingOrTerminal (G : g₀.Embedding g) : Symbol T g.NT → Prop
-  | terminal (t : T) : FromEmbeddingOrTerminal G (.terminal t)
-  | nonterminal (n₀ : g₀.NT) : FromEmbeddingOrTerminal G (.nonterminal (G.embedNT n₀))
+/-- A `Symbol` comes from the embedding. -/
+def FromEmbedding (G : g₀.Embedding g) (s : Symbol T g.NT) : Prop :=
+  ∃ s₀ : Symbol T g₀.NT, G.embed s₀ = s
 
-/-- A string is from the embedding or terminals iff every `Symbol` in it is. -/
-def FromEmbeddingOrTerminalString (G : g₀.Embedding g) (s : List (Symbol T g.NT)) : Prop :=
-  ∀ ⦃a : Symbol T g.NT⦄, a ∈ s → FromEmbeddingOrTerminal G a
+/-- A string is from the embedding iff every `Symbol` in it is. -/
+def FromEmbeddingString (G : g₀.Embedding g) (s : List (Symbol T g.NT)) : Prop :=
+  ∀ ⦃a : Symbol T g.NT⦄, a ∈ s → FromEmbedding G a
 
-lemma fromEmbeddingOrTerminalString_singleton {s : Symbol T g.NT}
-    (hs : G.FromEmbeddingOrTerminal s) : G.FromEmbeddingOrTerminalString [s] := by
-  simpa [FromEmbeddingOrTerminalString] using hs
+lemma fromEmbeddingString_singleton {s : Symbol T g.NT}
+    (hs : G.FromEmbedding s) : G.FromEmbeddingString [s] := by
+  simpa [FromEmbeddingString] using hs
 
 /-- Production by `G.g` can be mirrored by `G.g₀` production if the first word does not contain any
 nonterminals that `G.g₀` lacks. -/
 lemma produces_filterMap {w₁ w₂ : List (Symbol T g.NT)}
-    (hG : g.Produces w₁ w₂) (hw₁ : G.FromEmbeddingOrTerminalString w₁) :
+    (hG : g.Produces w₁ w₂) (hw₁ : G.FromEmbeddingString w₁) :
     g₀.Produces
-      (w₁.filterMap (Symbol.filterMap G.projectNT))
-      (w₂.filterMap (Symbol.filterMap G.projectNT)) ∧
-    G.FromEmbeddingOrTerminalString w₂ := by
+      (w₁.filterMap G.project)
+      (w₂.filterMap G.project) ∧
+    G.FromEmbeddingString w₂ := by
   rcases hG with ⟨r, rin, hr⟩
   rcases hr.exists_parts with ⟨u, v, bef, aft⟩
   rw [bef] at hw₁
   have from_embedding_or_terminal_input :
-      G.FromEmbeddingOrTerminal (Symbol.nonterminal r.input) := by
+      G.FromEmbedding (Symbol.nonterminal r.input) := by
     apply hw₁
     simp
-  revert from_embedding_or_terminal_input
-  generalize hr_eq : r.input = n
-  intro from_embedding_or_terminal_input
-  cases from_embedding_or_terminal_input with
+  rcases from_embedding_or_terminal_input with ⟨s₀, hs₀⟩
+  cases s₀ with
+  | terminal t =>
+    rcases G.embed_terminal t with ⟨t', ht⟩
+    have : (Symbol.terminal t' : Symbol T g.NT) = Symbol.nonterminal r.input := by
+      simp [ht] at hs₀
+    cases this
   | nonterminal n₀ =>
-    rcases G.preimage_of_rules r rin n₀ hr_eq.symm with ⟨r₀, hr₀, hrr₀⟩
+    have hr_eq : G.embed (.nonterminal n₀) = .nonterminal r.input := hs₀
+    rcases G.preimage_of_rules r rin n₀ hr_eq with ⟨r₀, hr₀, hr₀_input, hrr₀⟩
     constructor
     · refine ⟨r₀, hr₀, ?_⟩
       rw [ContextFreeRule.rewrites_iff]
-      use u.filterMap (Symbol.filterMap G.projectNT), v.filterMap (Symbol.filterMap G.projectNT)
-      have correct_inverse : Symbol.filterMap (T := T) G.projectNT ∘ Symbol.map G.embedNT =
-          Option.some := by
-        ext1 x
-        cases x
-        · rfl
-        rw [Function.comp_apply]
-        simp only [Symbol.filterMap, Symbol.map]
-        rw [G.projectNT_embedNT]
-        rfl
+      use u.filterMap G.project, v.filterMap G.project
+      have correct_inverse : G.project ∘ G.embed = Option.some := by
+        ext x
+        simp [project_embed_apply]
       constructor
-      · have middle :
-          List.filterMap (Symbol.filterMap (T := T) G.projectNT)
-            [Symbol.nonterminal (G.embedNT r₀.input)] =
-            [Symbol.nonterminal r₀.input] := by
-          simp [List.filterMap, Symbol.filterMap, G.projectNT_embedNT]
-        simpa only [List.filterMap_append, ContextFreeRule.map, ← hrr₀, middle]
-          using congr_arg (List.filterMap (Symbol.filterMap G.projectNT)) bef
-      · simpa only [List.filterMap_append, ContextFreeRule.map,
-            List.filterMap_map, List.filterMap_some, ← hrr₀, correct_inverse]
-          using congr_arg (List.filterMap (Symbol.filterMap G.projectNT)) aft
+      · have hproj : G.project (.nonterminal r.input) = some (.nonterminal r₀.input) := by
+          have : G.embed (.nonterminal r₀.input) = .nonterminal r.input := by
+            simpa [hr₀_input] using hr_eq
+          simpa [this] using G.project_embed (.nonterminal r₀.input)
+        have middle :
+            List.filterMap G.project [Symbol.nonterminal r.input] =
+              [Symbol.nonterminal r₀.input] := by
+          simp [List.filterMap, hproj]
+        have bef' := congr_arg (List.filterMap G.project) bef
+        have bef'' :
+            List.filterMap G.project w₁ =
+              List.filterMap G.project u ++ [Symbol.nonterminal r₀.input] ++
+                List.filterMap G.project v := by
+          -- expand filterMap over the two appends explicitly
+          have bef₁ := bef'
+          -- re-associate so we can split twice
+          rw [List.append_assoc] at bef₁
+          rw [List.filterMap_append] at bef₁
+          rw [List.filterMap_append] at bef₁
+          simpa [middle] using bef₁
+        simpa [ContextFreeRule.mapSymbol, hrr₀] using bef''
+      · have aft' := congr_arg (List.filterMap G.project) aft
+        have houtput : r.output = r₀.output.map G.embed := by
+          simpa [ContextFreeRule.mapSymbol] using (congrArg ContextFreeRule.output hrr₀).symm
+        have aft'' :
+            List.filterMap G.project w₂ =
+              List.filterMap G.project u ++
+                List.filterMap G.project (r₀.output.map G.embed) ++
+                List.filterMap G.project v := by
+          simpa [List.filterMap_append, houtput] using aft'
+        simpa [List.filterMap_map, List.filterMap_some, correct_inverse] using aft''
     · rw [aft, ← hrr₀]
-      simp only [FromEmbeddingOrTerminalString, List.forall_mem_append] at hw₁ ⊢
+      simp only [FromEmbeddingString, List.forall_mem_append] at hw₁ ⊢
       refine ⟨⟨hw₁.left.left, ?_⟩, hw₁.right⟩
       intro a ha
-      cases a
-      · constructor
-      dsimp only [ContextFreeRule.map] at ha
+      dsimp only [ContextFreeRule.mapSymbol] at ha
       rw [List.mem_map] at ha
       rcases ha with ⟨s, -, hs⟩
-      rw [← hs]
-      cases s with
-      | terminal t => simp [Symbol.map] at hs
-      | nonterminal s' => exact FromEmbeddingOrTerminal.nonterminal s'
+      refine ⟨s, ?_⟩
+      simpa using hs
 
 private lemma derives_filterMap_aux {w₁ w₂ : List (Symbol T g.NT)}
-    (hG : g.Derives w₁ w₂) (hw₁ : G.FromEmbeddingOrTerminalString w₁) :
+    (hG : g.Derives w₁ w₂) (hw₁ : G.FromEmbeddingString w₁) :
     g₀.Derives
-      (w₁.filterMap (Symbol.filterMap G.projectNT))
-      (w₂.filterMap (Symbol.filterMap G.projectNT)) ∧
-    G.FromEmbeddingOrTerminalString w₂ := by
+      (w₁.filterMap G.project)
+      (w₂.filterMap G.project) ∧
+    G.FromEmbeddingString w₂ := by
   induction hG with
   | refl => exact ⟨by rfl, hw₁⟩
   | tail _ orig ih =>
@@ -493,10 +524,10 @@ private lemma derives_filterMap_aux {w₁ w₂ : List (Symbol T g.NT)}
 /-- Derivation by `G.g` can be mirrored by `G.g₀` derivation if the starting word does not contain
 any nonterminals that `G.g₀` lacks. -/
 lemma derives_filterMap {w₁ w₂ : List (Symbol T g.NT)}
-    (hG : g.Derives w₁ w₂) (hw₁ : G.FromEmbeddingOrTerminalString w₁) :
+    (hG : g.Derives w₁ w₂) (hw₁ : G.FromEmbeddingString w₁) :
     g₀.Derives
-      (w₁.filterMap (Symbol.filterMap G.projectNT))
-      (w₂.filterMap (Symbol.filterMap G.projectNT)) :=
+      (w₁.filterMap G.project)
+      (w₂.filterMap G.project) :=
   (derives_filterMap_aux hG hw₁).left
 
 end ContextFreeGrammar.Embedding
@@ -606,22 +637,37 @@ private def oN₂_of_N : (g₁.union g₂).NT → Option g₂.NT
   | some (Sum.inr n) => some n
 
 private def g₁g : ContextFreeGrammar.Embedding g₁ (g₁.union g₂) where
-  embedNT := some ∘ Sum.inl
-  projectNT := oN₁_of_N
-  projectNT_embedNT := fun n₀ => rfl
+  embed := Symbol.map (some ∘ Sum.inl)
+  project
+    | .terminal t => some (.terminal t)
+    | .nonterminal none => none
+    | .nonterminal (some (Sum.inl n)) => some (.nonterminal n)
+    | .nonterminal (some (Sum.inr _)) => none
+  project_embed := by
+    intro s
+    cases s <;> rfl
+  embed_terminal := by
+    intro t
+    exact ⟨t, rfl⟩
+  embed_nonterminal := by
+    intro n₀
+    exact ⟨some (Sum.inl n₀), rfl⟩
   embed_mem_rules := by
-    intro r hr
-    simp only [ContextFreeGrammar.union]
+    intro r hr n h
+    simp only [ContextFreeGrammar.union] at *
     letI : DecidableEq T := Classical.decEq T
     letI : DecidableEq g₁.NT := Classical.decEq g₁.NT
     letI : DecidableEq g₂.NT := Classical.decEq g₂.NT
     letI : DecidableEq (Option (g₁.NT ⊕ g₂.NT)) := Classical.decEq _
     letI : DecidableEq (ContextFreeRule T (Option (g₁.NT ⊕ g₂.NT))) := Classical.decEq _
+    have hn : n = some (Sum.inl r.input) := by
+      simpa [Symbol.map] using (Symbol.nonterminal.inj h.symm)
+    subst hn
     apply Finset.mem_cons_of_mem
     apply Finset.mem_cons_of_mem
     apply Finset.mem_union_left
     rw [Finset.mem_map]
-    exact ⟨r, hr, rfl⟩
+    refine ⟨r, hr, rfl⟩
   preimage_of_rules := by
     intro r hr n₀ heq
     simp only [ContextFreeGrammar.union] at hr
@@ -631,37 +677,76 @@ private def g₁g : ContextFreeGrammar.Embedding g₁ (g₁.union g₂) where
     letI : DecidableEq (Option (g₁.NT ⊕ g₂.NT)) := Classical.decEq _
     letI : DecidableEq (ContextFreeRule T (Option (g₁.NT ⊕ g₂.NT))) := Classical.decEq _
     rcases Finset.mem_cons.mp hr with rfl | hr
-    · simp at heq
+    · have : (some (Sum.inl n₀) : Option (g₁.NT ⊕ g₂.NT)) = none := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      cases this
     rcases Finset.mem_cons.mp hr with rfl | hr
-    · simp at heq
+    · have : (some (Sum.inl n₀) : Option (g₁.NT ⊕ g₂.NT)) = none := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      cases this
     rcases Finset.mem_union.mp hr with hr | hr
     · rcases Finset.mem_map.mp hr with ⟨r₀, hr₀, hr_eq⟩
-      use r₀, hr₀
-      exact hr_eq
+      have hr_input : r.input = some (Sum.inl r₀.input) := by
+        simpa [ContextFreeRule.map] using (congrArg ContextFreeRule.input hr_eq).symm
+      have heq' : some (Sum.inl n₀) = r.input := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      have hinput : r₀.input = n₀ := by
+        have : (some (Sum.inl n₀) : Option (g₁.NT ⊕ g₂.NT)) =
+            some (Sum.inl r₀.input) := by
+          simpa [hr_input] using heq'
+        exact Sum.inl_injective (Option.some_injective _ this.symm)
+      refine ⟨r₀, hr₀, hinput, ?_⟩
+      calc
+        ContextFreeRule.mapSymbol (T := T) r₀ (Symbol.map (some ∘ Sum.inl)) r.input
+            = ContextFreeRule.mapSymbol (T := T) r₀ (Symbol.map (some ∘ Sum.inl))
+                (some (Sum.inl r₀.input)) := by
+                  simp [hr_input]
+        _ = r₀.map (some ∘ Sum.inl) := by
+              rfl
+        _ = r := hr_eq
     · exfalso
       rcases Finset.mem_map.mp hr with ⟨r₀, _, hr_eq⟩
-      simp only [ContextFreeRule.map, Function.comp_apply] at heq hr_eq
-      rw [← hr_eq] at heq
-      have : Sum.inl n₀ = Sum.inr r₀.input := Option.some_injective _ heq
+      have hr_input : r.input = some (Sum.inr r₀.input) := by
+        simpa [ContextFreeRule.map] using (congrArg ContextFreeRule.input hr_eq).symm
+      have heq' : some (Sum.inl n₀) = r.input := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      have : some (Sum.inl n₀) = some (Sum.inr r₀.input) := by
+        simp [hr_input] at heq'
+      have : Sum.inl n₀ = Sum.inr r₀.input := Option.some_injective _ this
       cases this
 
 private def g₂g : ContextFreeGrammar.Embedding g₂ (g₁.union g₂) where
-  embedNT := some ∘ Sum.inr
-  projectNT := oN₂_of_N
-  projectNT_embedNT := fun n₀ => rfl
+  embed := Symbol.map (some ∘ Sum.inr)
+  project
+    | .terminal t => some (.terminal t)
+    | .nonterminal none => none
+    | .nonterminal (some (Sum.inl _)) => none
+    | .nonterminal (some (Sum.inr n)) => some (.nonterminal n)
+  project_embed := by
+    intro s
+    cases s <;> rfl
+  embed_terminal := by
+    intro t
+    exact ⟨t, rfl⟩
+  embed_nonterminal := by
+    intro n₀
+    exact ⟨some (Sum.inr n₀), rfl⟩
   embed_mem_rules := by
-    intro r hr
-    simp only [ContextFreeGrammar.union]
+    intro r hr n h
+    simp only [ContextFreeGrammar.union] at *
     letI : DecidableEq T := Classical.decEq T
     letI : DecidableEq g₁.NT := Classical.decEq g₁.NT
     letI : DecidableEq g₂.NT := Classical.decEq g₂.NT
     letI : DecidableEq (Option (g₁.NT ⊕ g₂.NT)) := Classical.decEq _
     letI : DecidableEq (ContextFreeRule T (Option (g₁.NT ⊕ g₂.NT))) := Classical.decEq _
+    have hn : n = some (Sum.inr r.input) := by
+      simpa [Symbol.map] using (Symbol.nonterminal.inj h.symm)
+    subst hn
     apply Finset.mem_cons_of_mem
     apply Finset.mem_cons_of_mem
     apply Finset.mem_union_right
     rw [Finset.mem_map]
-    exact ⟨r, hr, rfl⟩
+    refine ⟨r, hr, rfl⟩
   preimage_of_rules := by
     intro r hr n₀ heq
     simp only [ContextFreeGrammar.union] at hr
@@ -671,19 +756,43 @@ private def g₂g : ContextFreeGrammar.Embedding g₂ (g₁.union g₂) where
     letI : DecidableEq (Option (g₁.NT ⊕ g₂.NT)) := Classical.decEq _
     letI : DecidableEq (ContextFreeRule T (Option (g₁.NT ⊕ g₂.NT))) := Classical.decEq _
     rcases Finset.mem_cons.mp hr with rfl | hr
-    · simp at heq
+    · have : (some (Sum.inr n₀) : Option (g₁.NT ⊕ g₂.NT)) = none := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      cases this
     rcases Finset.mem_cons.mp hr with rfl | hr
-    · simp at heq
+    · have : (some (Sum.inr n₀) : Option (g₁.NT ⊕ g₂.NT)) = none := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      cases this
     rcases Finset.mem_union.mp hr with hr | hr
     · exfalso
       rcases Finset.mem_map.mp hr with ⟨r₀, _, hr_eq⟩
-      simp only [ContextFreeRule.map, Function.comp_apply] at heq hr_eq
-      rw [← hr_eq] at heq
-      have : Sum.inr n₀ = Sum.inl r₀.input := Option.some_injective _ heq
+      have hr_input : r.input = some (Sum.inl r₀.input) := by
+        simpa [ContextFreeRule.map] using (congrArg ContextFreeRule.input hr_eq).symm
+      have heq' : some (Sum.inr n₀) = r.input := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      have : some (Sum.inr n₀) = some (Sum.inl r₀.input) := by
+        simp [hr_input] at heq'
+      have : Sum.inr n₀ = Sum.inl r₀.input := Option.some_injective _ this
       cases this
     · rcases Finset.mem_map.mp hr with ⟨r₀, hr₀, hr_eq⟩
-      use r₀, hr₀
-      exact hr_eq
+      have hr_input : r.input = some (Sum.inr r₀.input) := by
+        simpa [ContextFreeRule.map] using (congrArg ContextFreeRule.input hr_eq).symm
+      have heq' : some (Sum.inr n₀) = r.input := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      have hinput : r₀.input = n₀ := by
+        have : (some (Sum.inr n₀) : Option (g₁.NT ⊕ g₂.NT)) =
+            some (Sum.inr r₀.input) := by
+          simpa [hr_input] using heq'
+        exact Sum.inr_injective (Option.some_injective _ this.symm)
+      refine ⟨r₀, hr₀, hinput, ?_⟩
+      calc
+        ContextFreeRule.mapSymbol (T := T) r₀ (Symbol.map (some ∘ Sum.inr)) r.input
+            = ContextFreeRule.mapSymbol (T := T) r₀ (Symbol.map (some ∘ Sum.inr))
+                (some (Sum.inr r₀.input)) := by
+                simp [hr_input]
+        _ = r₀.map (some ∘ Sum.inr) := by
+              rfl
+        _ = r := hr_eq
 
 private lemma union_derives_left_initial :
     (g₁.union g₂).Derives [Symbol.nonterminal (none : (g₁.union g₂).NT)]
@@ -712,46 +821,76 @@ variable {w : List T}
 
 private lemma in_union_of_in_left (hw : w ∈ g₁.language) : w ∈ (g₁.union g₂).language := by
   refine union_derives_left_initial.trans ?_
-  have h : (w.map Symbol.terminal).map (Symbol.map (some ∘ Sum.inl : g₁.NT → (g₁.union g₂).NT)) =
-      w.map Symbol.terminal := by
-      simp [Symbol.map]
+  have h :
+      (w.map (Symbol.terminal (N := g₁.NT))).map g₁g.embed =
+        w.map (Symbol.terminal (N := (g₁.union g₂).NT)) := by
+    cases w with
+    | nil => rfl
+    | cons t w => simp [g₁g, Symbol.map]
   rw [← h]
   exact g₁g.derives_map hw
 
 private lemma in_union_of_in_right (hw : w ∈ g₂.language) : w ∈ (g₁.union g₂).language := by
   refine union_derives_right_initial.trans ?_
-  have h : (w.map Symbol.terminal).map (Symbol.map (some ∘ Sum.inr : g₂.NT → (g₁.union g₂).NT)) =
-      w.map Symbol.terminal := by
-      simp [Symbol.map]
+  have h :
+      (w.map (Symbol.terminal (N := g₂.NT))).map g₂g.embed =
+        w.map (Symbol.terminal (N := (g₁.union g₂).NT)) := by
+    cases w with
+    | nil => rfl
+    | cons t w => simp [g₂g, Symbol.map]
   rw [← h]
   exact g₂g.derives_map hw
 
-private lemma List.filterMap_symbol_filterMap_terminal {N₀ N : Type*}
-    (projectN : N → Option N₀) (w : List T) :
-    List.filterMap (Symbol.filterMap projectN) (w.map Symbol.terminal) = w.map Symbol.terminal := by
+private lemma List.filterMap_project_terminal {N₀ N : Type*}
+    (project : Symbol T N → Option (Symbol T N₀))
+    (hproj : ∀ t : T, project (.terminal t) = some (.terminal t))
+    (w : List T) :
+    List.filterMap project (w.map Symbol.terminal) = w.map Symbol.terminal := by
   induction w with
   | nil => rfl
-  | cons t _ ih => exact congr_arg (Symbol.terminal t :: ·) ih
+  | cons t _ ih => simp [hproj, ih]
 
 private lemma in_left_of_in_union (hw : (g₁.union g₂).Derives
       [Symbol.nonterminal (some (Sum.inl g₁.initial) : (g₁.union g₂).NT)]
       (List.map Symbol.terminal w)) :
     w ∈ g₁.language := by
-  apply w.filterMap_symbol_filterMap_terminal g₁g.projectNT ▸ g₁g.derives_filterMap hw
-  intro a ha
-  simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
-  rw [ha]
-  exact ContextFreeGrammar.Embedding.FromEmbeddingOrTerminal.nonterminal g₁.initial
+  have hterm :
+      List.filterMap g₁g.project (List.map (Symbol.terminal (N := (g₁.union g₂).NT)) w) =
+        List.map (Symbol.terminal (N := g₁.NT)) w :=
+    List.filterMap_project_terminal g₁g.project (by intro t; simp [g₁g]) w
+  have h := g₁g.derives_filterMap hw
+    (by
+      intro a ha
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
+      rw [ha]
+      exact ⟨Symbol.nonterminal g₁.initial, by simp [g₁g, Symbol.map]⟩)
+  have h' : g₁.Derives
+      (List.filterMap g₁g.project
+        [Symbol.nonterminal (some (Sum.inl g₁.initial) : (g₁.union g₂).NT)])
+      (List.map Symbol.terminal w) := by
+    simpa [hterm] using h
+  simpa [g₁g] using h'
 
 private lemma in_right_of_in_union (hw : (g₁.union g₂).Derives
       [Symbol.nonterminal (some (Sum.inr g₂.initial) : (g₁.union g₂).NT)]
       (List.map Symbol.terminal w)) :
     w ∈ g₂.language := by
-  apply w.filterMap_symbol_filterMap_terminal g₂g.projectNT ▸ g₂g.derives_filterMap hw
-  intro a ha
-  simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
-  rw [ha]
-  exact ContextFreeGrammar.Embedding.FromEmbeddingOrTerminal.nonterminal g₂.initial
+  have hterm :
+      List.filterMap g₂g.project (List.map (Symbol.terminal (N := (g₁.union g₂).NT)) w) =
+        List.map (Symbol.terminal (N := g₂.NT)) w :=
+    List.filterMap_project_terminal g₂g.project (by intro t; simp [g₂g]) w
+  have h := g₂g.derives_filterMap hw
+    (by
+      intro a ha
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
+      rw [ha]
+      exact ⟨Symbol.nonterminal g₂.initial, by simp [g₂g, Symbol.map]⟩)
+  have h' : g₂.Derives
+      (List.filterMap g₂g.project
+        [Symbol.nonterminal (some (Sum.inr g₂.initial) : (g₁.union g₂).NT)])
+      (List.map Symbol.terminal w) := by
+    simpa [hterm] using h
+  simpa [g₂g] using h'
 
 private lemma map_inl_injective : ((ContextFreeRule.map · (Option.some ∘ Sum.inl)) :
     ContextFreeRule T g₁.NT → ContextFreeRule T (Option (g₁.NT ⊕ g₂.NT))).Injective := by
@@ -922,21 +1061,36 @@ private def oN₂_of_N_concat : (g₁.concat g₂).NT → Option g₂.NT
   | some (Sum.inr n) => some n
 
 private def g₁g_concat : ContextFreeGrammar.Embedding g₁ (g₁.concat g₂) where
-  embedNT := some ∘ Sum.inl
-  projectNT := oN₁_of_N_concat
-  projectNT_embedNT := fun n₀ => rfl
+  embed := Symbol.map (some ∘ Sum.inl)
+  project
+    | .terminal t => some (.terminal t)
+    | .nonterminal none => none
+    | .nonterminal (some (Sum.inl n)) => some (.nonterminal n)
+    | .nonterminal (some (Sum.inr _)) => none
+  project_embed := by
+    intro s
+    cases s <;> rfl
+  embed_terminal := by
+    intro t
+    exact ⟨t, rfl⟩
+  embed_nonterminal := by
+    intro n₀
+    exact ⟨some (Sum.inl n₀), rfl⟩
   embed_mem_rules := by
-    intro r hr
-    simp only [ContextFreeGrammar.concat]
+    intro r hr n h
+    simp only [ContextFreeGrammar.concat] at *
     letI : DecidableEq T := Classical.decEq T
     letI : DecidableEq g₁.NT := Classical.decEq g₁.NT
     letI : DecidableEq g₂.NT := Classical.decEq g₂.NT
     letI : DecidableEq (Option (g₁.NT ⊕ g₂.NT)) := Classical.decEq _
     letI : DecidableEq (ContextFreeRule T (Option (g₁.NT ⊕ g₂.NT))) := Classical.decEq _
+    have hn : n = some (Sum.inl r.input) := by
+      simpa [Symbol.map] using (Symbol.nonterminal.inj h.symm)
+    subst hn
     apply Finset.mem_cons_of_mem
     apply Finset.mem_union_left
     rw [Finset.mem_map]
-    exact ⟨r, hr, rfl⟩
+    refine ⟨r, hr, rfl⟩
   preimage_of_rules := by
     intro r hr n₀ heq
     simp only [ContextFreeGrammar.concat] at hr
@@ -946,34 +1100,71 @@ private def g₁g_concat : ContextFreeGrammar.Embedding g₁ (g₁.concat g₂) 
     letI : DecidableEq (Option (g₁.NT ⊕ g₂.NT)) := Classical.decEq _
     letI : DecidableEq (ContextFreeRule T (Option (g₁.NT ⊕ g₂.NT))) := Classical.decEq _
     rcases Finset.mem_cons.mp hr with rfl | hr
-    · simp at heq
+    · have : (some (Sum.inl n₀) : Option (g₁.NT ⊕ g₂.NT)) = none := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      cases this
     rcases Finset.mem_union.mp hr with hr | hr
     · rcases Finset.mem_map.mp hr with ⟨r₀, hr₀, hr_eq⟩
-      use r₀, hr₀
-      exact hr_eq
+      have hr_input : r.input = some (Sum.inl r₀.input) := by
+        simpa [ContextFreeRule.map] using (congrArg ContextFreeRule.input hr_eq).symm
+      have heq' : some (Sum.inl n₀) = r.input := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      have hinput : r₀.input = n₀ := by
+        have : (some (Sum.inl n₀) : Option (g₁.NT ⊕ g₂.NT)) =
+            some (Sum.inl r₀.input) := by
+          simpa [hr_input] using heq'
+        exact Sum.inl_injective (Option.some_injective _ this.symm)
+      refine ⟨r₀, hr₀, hinput, ?_⟩
+      calc
+        ContextFreeRule.mapSymbol (T := T) r₀ (Symbol.map (some ∘ Sum.inl)) r.input
+            = ContextFreeRule.mapSymbol (T := T) r₀ (Symbol.map (some ∘ Sum.inl))
+                (some (Sum.inl r₀.input)) := by
+                simp [hr_input]
+        _ = r₀.map (some ∘ Sum.inl) := by
+              rfl
+        _ = r := hr_eq
     · exfalso
       rcases Finset.mem_map.mp hr with ⟨r₀, _, hr_eq⟩
-      simp only [ContextFreeRule.map, Function.comp_apply] at heq hr_eq
-      rw [← hr_eq] at heq
-      have : Sum.inl n₀ = Sum.inr r₀.input := Option.some_injective _ heq
+      have hr_input : r.input = some (Sum.inr r₀.input) := by
+        simpa [ContextFreeRule.map] using (congrArg ContextFreeRule.input hr_eq).symm
+      have heq' : some (Sum.inl n₀) = r.input := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      have : some (Sum.inl n₀) = some (Sum.inr r₀.input) := by
+        simp [hr_input] at heq'
+      have : Sum.inl n₀ = Sum.inr r₀.input := Option.some_injective _ this
       cases this
 
 private def g₂g_concat : ContextFreeGrammar.Embedding g₂ (g₁.concat g₂) where
-  embedNT := some ∘ Sum.inr
-  projectNT := oN₂_of_N_concat
-  projectNT_embedNT := fun n₀ => rfl
+  embed := Symbol.map (some ∘ Sum.inr)
+  project
+    | .terminal t => some (.terminal t)
+    | .nonterminal none => none
+    | .nonterminal (some (Sum.inl _)) => none
+    | .nonterminal (some (Sum.inr n)) => some (.nonterminal n)
+  project_embed := by
+    intro s
+    cases s <;> rfl
+  embed_terminal := by
+    intro t
+    exact ⟨t, rfl⟩
+  embed_nonterminal := by
+    intro n₀
+    exact ⟨some (Sum.inr n₀), rfl⟩
   embed_mem_rules := by
-    intro r hr
-    simp only [ContextFreeGrammar.concat]
+    intro r hr n h
+    simp only [ContextFreeGrammar.concat] at *
     letI : DecidableEq T := Classical.decEq T
     letI : DecidableEq g₁.NT := Classical.decEq g₁.NT
     letI : DecidableEq g₂.NT := Classical.decEq g₂.NT
     letI : DecidableEq (Option (g₁.NT ⊕ g₂.NT)) := Classical.decEq _
     letI : DecidableEq (ContextFreeRule T (Option (g₁.NT ⊕ g₂.NT))) := Classical.decEq _
+    have hn : n = some (Sum.inr r.input) := by
+      simpa [Symbol.map] using (Symbol.nonterminal.inj h.symm)
+    subst hn
     apply Finset.mem_cons_of_mem
     apply Finset.mem_union_right
     rw [Finset.mem_map]
-    exact ⟨r, hr, rfl⟩
+    refine ⟨r, hr, rfl⟩
   preimage_of_rules := by
     intro r hr n₀ heq
     simp only [ContextFreeGrammar.concat] at hr
@@ -983,17 +1174,39 @@ private def g₂g_concat : ContextFreeGrammar.Embedding g₂ (g₁.concat g₂) 
     letI : DecidableEq (Option (g₁.NT ⊕ g₂.NT)) := Classical.decEq _
     letI : DecidableEq (ContextFreeRule T (Option (g₁.NT ⊕ g₂.NT))) := Classical.decEq _
     rcases Finset.mem_cons.mp hr with rfl | hr
-    · simp at heq
+    · have : (some (Sum.inr n₀) : Option (g₁.NT ⊕ g₂.NT)) = none := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      cases this
     rcases Finset.mem_union.mp hr with hr | hr
     · exfalso
       rcases Finset.mem_map.mp hr with ⟨r₀, _, hr_eq⟩
-      simp only [ContextFreeRule.map, Function.comp_apply] at heq hr_eq
-      rw [← hr_eq] at heq
-      have : Sum.inr n₀ = Sum.inl r₀.input := Option.some_injective _ heq
+      have hr_input : r.input = some (Sum.inl r₀.input) := by
+        simpa [ContextFreeRule.map] using (congrArg ContextFreeRule.input hr_eq).symm
+      have heq' : some (Sum.inr n₀) = r.input := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      have : some (Sum.inr n₀) = some (Sum.inl r₀.input) := by
+        simp [hr_input] at heq'
+      have : Sum.inr n₀ = Sum.inl r₀.input := Option.some_injective _ this
       cases this
     · rcases Finset.mem_map.mp hr with ⟨r₀, hr₀, hr_eq⟩
-      use r₀, hr₀
-      exact hr_eq
+      have hr_input : r.input = some (Sum.inr r₀.input) := by
+        simpa [ContextFreeRule.map] using (congrArg ContextFreeRule.input hr_eq).symm
+      have heq' : some (Sum.inr n₀) = r.input := by
+        simpa [Symbol.map] using (Symbol.nonterminal.inj heq)
+      have hinput : r₀.input = n₀ := by
+        have : (some (Sum.inr n₀) : Option (g₁.NT ⊕ g₂.NT)) =
+            some (Sum.inr r₀.input) := by
+          simpa [hr_input] using heq'
+        exact Sum.inr_injective (Option.some_injective _ this.symm)
+      refine ⟨r₀, hr₀, hinput, ?_⟩
+      calc
+        ContextFreeRule.mapSymbol (T := T) r₀ (Symbol.map (some ∘ Sum.inr)) r.input
+            = ContextFreeRule.mapSymbol (T := T) r₀ (Symbol.map (some ∘ Sum.inr))
+                (some (Sum.inr r₀.input)) := by
+                simp [hr_input]
+        _ = r₀.map (some ∘ Sum.inr) := by
+              rfl
+        _ = r := hr_eq
 
 private lemma concat_derives_both_initials :
     (g₁.concat g₂).Derives [Symbol.nonterminal (none : (g₁.concat g₂).NT)]
@@ -1091,23 +1304,29 @@ private lemma in_concat_of_in_left_and_right {w₁ w₂ : List T}
     w₁ ++ w₂ ∈ (g₁.concat g₂).language := by
   refine concat_derives_both_initials.trans ?_
   rw [List.map_append]
-  have h1 : (w₁.map Symbol.terminal).map (Symbol.map (some ∘ Sum.inl : g₁.NT → (g₁.concat g₂).NT)) =
-      w₁.map Symbol.terminal := by
-    simp [Symbol.map]
-  have h2 : (w₂.map Symbol.terminal).map (Symbol.map (some ∘ Sum.inr : g₂.NT → (g₁.concat g₂).NT)) =
-      w₂.map Symbol.terminal := by
-    simp [Symbol.map]
+  have h1 :
+      (w₁.map (Symbol.terminal (N := g₁.NT))).map g₁g_concat.embed =
+        w₁.map (Symbol.terminal (N := (g₁.concat g₂).NT)) := by
+    cases w₁ with
+    | nil => rfl
+    | cons t w => simp [g₁g_concat, Symbol.map]
+  have h2 :
+      (w₂.map (Symbol.terminal (N := g₂.NT))).map g₂g_concat.embed =
+        w₂.map (Symbol.terminal (N := (g₁.concat g₂).NT)) := by
+    cases w₂ with
+    | nil => rfl
+    | cons t w => simp [g₂g_concat, Symbol.map]
   rw [← h1, ← h2]
   exact (g₁g_concat.derives_map hw₁).append_right _
     |>.trans ((g₂g_concat.derives_map hw₂).append_left _)
 
-private lemma filterMap_terminals_eq {N N' : Type*} (projectNT : N → Option N')
-    (w : List T) :
-    (w.map (Symbol.terminal (N := N))).filterMap (Symbol.filterMap projectNT) =
+private lemma filterMap_terminals_eq {N N' : Type*} (project : Symbol T N → Option (Symbol T N'))
+    (hproj : ∀ t : T, project (.terminal t) = some (.terminal t)) (w : List T) :
+    (w.map (Symbol.terminal (N := N))).filterMap project =
       w.map (Symbol.terminal (N := N')) := by
   induction w with
   | nil => rfl
-  | cons t w ih => simp [Symbol.filterMap, ih]
+  | cons t w ih => simp [hproj, ih]
 
 /-- Extract terminals from a symbol list. -/
 private def extractTerminals {N : Type*} : List (Symbol T N) → List T
@@ -1130,16 +1349,18 @@ private lemma extractTerminals_append {N : Type*} (s₁ s₂ : List (Symbol T N)
     | terminal t => simp [extractTerminals, ih]
     | nonterminal n => simp [extractTerminals, ih]
 
-private lemma extractTerminals_filterMap_terminals {N₁ N₂ : Type*} (projectNT : N₂ → Option N₁)
+private lemma extractTerminals_filterMap_terminals {N₁ N₂ : Type*}
+    (project : Symbol T N₂ → Option (Symbol T N₁))
+    (hproj : ∀ t : T, project (.terminal t) = some (.terminal t))
     (s : List (Symbol T N₂)) (hs : ∀ x ∈ s, ∃ t : T, x = Symbol.terminal t) :
-    extractTerminals s = extractTerminals (s.filterMap (Symbol.filterMap projectNT)) := by
+    extractTerminals s = extractTerminals (s.filterMap project) := by
   induction s with
   | nil => rfl
   | cons head tail ih =>
     have h_head := hs head (by simp)
     obtain ⟨t, rfl⟩ := h_head
     have h_tail : ∀ x ∈ tail, ∃ t : T, x = Symbol.terminal t := fun x hx => hs x (by simp [hx])
-    simp [extractTerminals, Symbol.filterMap, ih h_tail]
+    simp [extractTerminals, List.filterMap, hproj, ih h_tail]
 
 private lemma map_terminal_extractTerminals {N : Type*} (s : List (Symbol T N))
     (hs : ∀ x ∈ s, ∃ t : T, x = Symbol.terminal t) :
@@ -1152,14 +1373,16 @@ private lemma map_terminal_extractTerminals {N : Type*} (s : List (Symbol T N))
     have h_tail : ∀ x ∈ tail, ∃ t : T, x = Symbol.terminal t := fun x hx => hs x (by simp [hx])
     simp [extractTerminals, ih h_tail]
 
-private lemma filterMap_only_terminals {N₁ N₂ : Type*} (projectNT : N₂ → Option N₁)
+private lemma filterMap_only_terminals {N₁ N₂ : Type*}
+    (project : Symbol T N₂ → Option (Symbol T N₁))
+    (hproj : ∀ t : T, project (.terminal t) = some (.terminal t))
     (s : List (Symbol T N₂)) (hs : ∀ x ∈ s, ∃ t : T, x = Symbol.terminal t) :
-    ∀ x ∈ s.filterMap (Symbol.filterMap projectNT), ∃ t : T, x = Symbol.terminal t := by
+    ∀ x ∈ s.filterMap project, ∃ t : T, x = Symbol.terminal t := by
   intro x hx
   simp only [List.mem_filterMap] at hx
   obtain ⟨y, hy_mem, hy_eq⟩ := hx
   obtain ⟨t, rfl⟩ := hs y hy_mem
-  simp [Symbol.filterMap] at hy_eq
+  simp [hproj] at hy_eq
   exact ⟨t, hy_eq.symm⟩
 
 lemma ContextFreeGrammar.mem_concat_language_iff_mem_mul :
@@ -1184,18 +1407,18 @@ lemma ContextFreeGrammar.mem_concat_language_iff_mem_mul :
         -- Use splitting to get two separate derivations
         obtain ⟨u'', v'', hu'', hv'', huv''⟩ := concatenation_split _ _ _ hg
         -- Extract words from the combined grammar back to original grammars
-        have feot_u : (@g₁g_concat T g₁ g₂).FromEmbeddingOrTerminalString
+        have feot_u : (@g₁g_concat T g₁ g₂).FromEmbeddingString
             [Symbol.nonterminal (some (Sum.inl g₁.initial))] := by
           intro a ha
           simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
           rw [ha]
-          exact Embedding.FromEmbeddingOrTerminal.nonterminal g₁.initial
-        have feot_v : (@g₂g_concat T g₁ g₂).FromEmbeddingOrTerminalString
+          exact ⟨Symbol.nonterminal g₁.initial, by simp [g₁g_concat, Symbol.map]⟩
+        have feot_v : (@g₂g_concat T g₁ g₂).FromEmbeddingString
             [Symbol.nonterminal (some (Sum.inr g₂.initial))] := by
           intro a ha
           simp only [List.mem_cons, List.not_mem_nil, or_false] at ha
           rw [ha]
-          exact Embedding.FromEmbeddingOrTerminal.nonterminal g₂.initial
+          exact ⟨Symbol.nonterminal g₂.initial, by simp [g₂g_concat, Symbol.map]⟩
         have hu_filter := (@g₁g_concat T g₁ g₂).derives_filterMap hu'' feot_u
         have hv_filter := (@g₂g_concat T g₁ g₂).derives_filterMap hv'' feot_v
         -- Extract the terminal words
@@ -1220,24 +1443,30 @@ lemma ContextFreeGrammar.mem_concat_language_iff_mem_mul :
         use w₁, ?_, w₂, ?_, ?_
         · -- w₁ ∈ g₁.language
           have eq1 : w₁.map Symbol.terminal =
-            u''.filterMap (Symbol.filterMap g₁g_concat.projectNT) := by
+            u''.filterMap g₁g_concat.project := by
             have : w₁ =
-              extractTerminals (u''.filterMap (Symbol.filterMap g₁g_concat.projectNT)) := by
-              rw [(extractTerminals_filterMap_terminals g₁g_concat.projectNT u'' u_terminals).symm]
+              extractTerminals (u''.filterMap g₁g_concat.project) := by
+              rw [(extractTerminals_filterMap_terminals g₁g_concat.project
+                (by intro t; simp [g₁g_concat]) u'' u_terminals).symm]
             rw [this]
-            exact map_terminal_extractTerminals _ (filterMap_only_terminals _ _ u_terminals)
+            exact map_terminal_extractTerminals _ (
+              filterMap_only_terminals _ (by intro t; simp [g₁g_concat]) _ u_terminals
+            )
           simp only [mem_language_iff, eq1]
-          exact hu_filter
+          simpa [g₁g_concat] using hu_filter
         · -- w₂ ∈ g₂.language
           have eq2 : w₂.map Symbol.terminal =
-            v''.filterMap (Symbol.filterMap g₂g_concat.projectNT) := by
+            v''.filterMap g₂g_concat.project := by
             have : w₂ =
-              extractTerminals (v''.filterMap (Symbol.filterMap g₂g_concat.projectNT)) := by
-              rw [(extractTerminals_filterMap_terminals g₂g_concat.projectNT v'' v_terminals).symm]
+              extractTerminals (v''.filterMap g₂g_concat.project) := by
+              rw [(extractTerminals_filterMap_terminals g₂g_concat.project
+                (by intro t; simp [g₂g_concat]) v'' v_terminals).symm]
             rw [this]
-            exact map_terminal_extractTerminals _ (filterMap_only_terminals _ _ v_terminals)
+            exact map_terminal_extractTerminals _ (
+              filterMap_only_terminals _ (by intro t; simp [g₂g_concat]) _ v_terminals
+            )
           simp only [mem_language_iff, eq2]
-          exact hv_filter
+          simpa [g₂g_concat] using hv_filter
         · -- w = w₁ ++ w₂
           calc w = extractTerminals (w.map (Symbol.terminal (N := (g₁.concat g₂).NT))) :=
                 (extractTerminals_map_terminal (N := (g₁.concat g₂).NT) w).symm
