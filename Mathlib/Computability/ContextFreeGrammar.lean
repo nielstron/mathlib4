@@ -1658,7 +1658,8 @@ noncomputable def substg₁_embedding (t : T) (g₁ g₂ : ContextFreeGrammar T)
     have hn : n = Sum.inl r.input := by
       simpa [substSymbol] using (Symbol.nonterminal.inj h.symm)
     subst hn
-    simp [ContextFreeGrammar.substsgrammar, Finset.mem_union, Finset.mem_map]
+    simp only [substsgrammar, Lean.Elab.WF.paramLet, Finset.mem_union, Finset.mem_map,
+      Embedding.coeFn_mk]
     left
     exact ⟨r, hr, rfl⟩
   preimage_of_rules := by
@@ -1667,15 +1668,16 @@ noncomputable def substg₁_embedding (t : T) (g₁ g₂ : ContextFreeGrammar T)
     letI : DecidableEq T := Classical.decEq T
     have hinput : r.input = Sum.inl n₀ := by
       simpa [substSymbol] using (Symbol.nonterminal.inj heq).symm
-    simp [ContextFreeGrammar.substsgrammar, Finset.mem_union, Finset.mem_map] at hr
+    simp only [substsgrammar, Lean.Elab.WF.paramLet, Finset.mem_union, Finset.mem_map,
+      Embedding.coeFn_mk] at hr
     rcases hr with hr | hr
     · rcases hr with ⟨r₀, hr₀, hr_eq⟩
       have hr_input : r.input = Sum.inl r₀.input := by
         simpa [ContextFreeRule.mapSymbol] using (congrArg ContextFreeRule.input hr_eq).symm
       have hinput' : r₀.input = n₀ := by
-        have : Sum.inl n₀ = Sum.inl r₀.input := by
-          simpa [hinput] using hr_input.symm
-        exact Sum.inl_injective this
+        have : (Sum.inl n₀ : g₁.NT ⊕ g₂.NT) = Sum.inl r₀.input := by
+          simp [hinput, hr_input.symm]
+        exact Sum.inl_injective this.symm
       refine ⟨r₀, hr₀, hinput', ?_⟩
       have : ContextFreeRule.mapSymbol (T := T) r₀ (substSymbol t g₁ g₂) (Sum.inl r₀.input) = r :=
         by
@@ -1708,7 +1710,8 @@ noncomputable def substg₂_embedding (t : T) (g₁ g₂ : ContextFreeGrammar T)
     have hn : n = Sum.inr r.input := by
       simpa [Symbol.map] using (Symbol.nonterminal.inj h.symm)
     subst hn
-    simp [ContextFreeGrammar.substsgrammar, Finset.mem_union, Finset.mem_map]
+    simp only [substsgrammar, Lean.Elab.WF.paramLet, Finset.mem_union, Finset.mem_map,
+      Embedding.coeFn_mk]
     right
     exact ⟨r, hr, rfl⟩
   preimage_of_rules := by
@@ -1716,7 +1719,8 @@ noncomputable def substg₂_embedding (t : T) (g₁ g₂ : ContextFreeGrammar T)
     classical
     have hinput : r.input = Sum.inr n₀ := by
       simpa [Symbol.map] using (Symbol.nonterminal.inj heq).symm
-    simp [ContextFreeGrammar.substsgrammar, Finset.mem_union, Finset.mem_map] at hr
+    simp only [substsgrammar, Lean.Elab.WF.paramLet, Finset.mem_union, Finset.mem_map,
+      Embedding.coeFn_mk] at hr
     rcases hr with hr | hr
     · rcases hr with ⟨r₀, hr₀, hr_eq⟩
       have hr_input : r.input = Sum.inl r₀.input := by
@@ -1728,10 +1732,9 @@ noncomputable def substg₂_embedding (t : T) (g₁ g₂ : ContextFreeGrammar T)
       have hr_input : r.input = Sum.inr r₀.input := by
         simpa [ContextFreeRule.map] using (congrArg ContextFreeRule.input hr_eq).symm
       have hinput' : r₀.input = n₀ := by
-        apply Sum.inr_injective
         have : (Sum.inr r₀.input : g₁.NT ⊕ g₂.NT) = Sum.inr n₀ := by
-          simpa [hinput] using hr_input.symm
-        simpa using this
+          simp [hinput, hr_input.symm]
+        exact Sum.inr_injective this
       refine ⟨r₀, hr₀, hinput', ?_⟩
       have : ContextFreeRule.mapSymbol (T := T) r₀ (Symbol.map Sum.inr) (Sum.inr r₀.input) = r :=
         by simpa [ContextFreeRule.map, ContextFreeRule.mapSymbol, Symbol.map] using hr_eq
