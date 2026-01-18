@@ -1592,6 +1592,151 @@ noncomputable def substsgrammar (t : T) (g₁ g₂ : ContextFreeGrammar T) :
     letI : DecidableEq (ContextFreeRule T (g₁.NT ⊕ g₂.NT)) := Classical.decEq _
     exact mapped1 ∪ mapped2
 
+noncomputable def substg₁_project (t : T) (g₁ g₂ : ContextFreeGrammar T) [DecidableEq T] :
+    Symbol T (g₁.NT ⊕ g₂.NT) → Option (Symbol T g₁.NT) := by
+  classical
+  intro s
+  cases s with
+  | terminal a => exact some (.terminal a)
+  | nonterminal n =>
+      cases n with
+      | inl n => exact some (.nonterminal n)
+      | inr n => exact if n = g₂.initial then some (.terminal t) else none
+
+@[simp] lemma substg₁_project_terminal (t : T) (g₁ g₂ : ContextFreeGrammar T) [DecidableEq T]
+    (a : T) :
+    substg₁_project t g₁ g₂ (.terminal a) = some (.terminal a) := by
+  classical
+  rfl
+
+@[simp] lemma substg₁_project_nonterminal_inl (t : T) (g₁ g₂ : ContextFreeGrammar T)
+    [DecidableEq T] (n : g₁.NT) :
+    substg₁_project t g₁ g₂ (.nonterminal (Sum.inl n)) = some (.nonterminal n) := by
+  classical
+  rfl
+
+@[simp] lemma substg₁_project_nonterminal_inr (t : T) (g₁ g₂ : ContextFreeGrammar T)
+    [DecidableEq T] [DecidableEq g₂.NT] (n : g₂.NT) :
+    substg₁_project t g₁ g₂ (.nonterminal (Sum.inr n)) =
+      (if n = g₂.initial then some (Symbol.terminal t) else none) := by
+  classical
+  simp [substg₁_project]
+
+noncomputable def substg₁_embedding (t : T) (g₁ g₂ : ContextFreeGrammar T)
+    [DecidableEq T] :
+    ContextFreeGrammar.Embedding g₁ (substsgrammar t g₁ g₂) where
+  embed := by
+    classical
+    exact @substSymbol T t g₁ g₂ (Classical.decEq T)
+  project := substg₁_project t g₁ g₂
+  project_embed := by
+    classical
+    letI : DecidableEq T := Classical.decEq T
+    letI : DecidableEq g₂.NT := Classical.decEq _
+    intro s
+    cases s with
+    | terminal a =>
+        by_cases h : a = t
+        · have : substSymbol t g₁ g₂ (.terminal a) =
+              Symbol.nonterminal (Sum.inr g₂.initial) := by
+            simp [substSymbol, h]
+          simp only [this, substg₁_project_nonterminal_inr, ↓reduceIte, Option.some.injEq,
+            Symbol.terminal.injEq]
+          exact h.symm
+        · have : substSymbol t g₁ g₂ (.terminal a) = Symbol.terminal a := by
+            simp [substSymbol, h]
+          simp [this]
+    | nonterminal n =>
+        simp [substSymbol, substg₁_project]
+  embed_nonterminal := by
+    intro n₀
+    exact ⟨Sum.inl n₀, rfl⟩
+  embed_mem_rules := by
+    intro r hr n h
+    classical
+    letI : DecidableEq T := Classical.decEq T
+    have hn : n = Sum.inl r.input := by
+      simpa [substSymbol] using (Symbol.nonterminal.inj h.symm)
+    subst hn
+    simp [ContextFreeGrammar.substsgrammar, Finset.mem_union, Finset.mem_map]
+    left
+    exact ⟨r, hr, rfl⟩
+  preimage_of_rules := by
+    intro r hr n₀ heq
+    classical
+    letI : DecidableEq T := Classical.decEq T
+    have hinput : r.input = Sum.inl n₀ := by
+      simpa [substSymbol] using (Symbol.nonterminal.inj heq).symm
+    simp [ContextFreeGrammar.substsgrammar, Finset.mem_union, Finset.mem_map] at hr
+    rcases hr with hr | hr
+    · rcases hr with ⟨r₀, hr₀, hr_eq⟩
+      have hr_input : r.input = Sum.inl r₀.input := by
+        simpa [ContextFreeRule.mapSymbol] using (congrArg ContextFreeRule.input hr_eq).symm
+      have hinput' : r₀.input = n₀ := by
+        have : Sum.inl n₀ = Sum.inl r₀.input := by
+          simpa [hinput] using hr_input.symm
+        exact Sum.inl_injective this
+      refine ⟨r₀, hr₀, hinput', ?_⟩
+      have : ContextFreeRule.mapSymbol (T := T) r₀ (substSymbol t g₁ g₂) (Sum.inl r₀.input) = r :=
+        by
+          simpa [ContextFreeRule.mapSymbol] using hr_eq
+      simpa [hinput', hr_input] using this
+    · rcases hr with ⟨r₀, hr₀, hr_eq⟩
+      have hr_input : r.input = Sum.inr r₀.input := by
+        simpa [ContextFreeRule.map] using (congrArg ContextFreeRule.input hr_eq).symm
+      have : Sum.inl n₀ = Sum.inr r₀.input := by
+        simpa [hinput] using hr_input.symm
+      cases this
+
+noncomputable def substg₂_embedding (t : T) (g₁ g₂ : ContextFreeGrammar T)
+    [DecidableEq T] :
+    ContextFreeGrammar.Embedding g₂ (substsgrammar t g₁ g₂) where
+  embed := Symbol.map Sum.inr
+  project
+    | .terminal a => some (.terminal a)
+    | .nonterminal (Sum.inl _) => none
+    | .nonterminal (Sum.inr n) => some (.nonterminal n)
+  project_embed := by
+    intro s
+    cases s <;> rfl
+  embed_nonterminal := by
+    intro n₀
+    exact ⟨Sum.inr n₀, rfl⟩
+  embed_mem_rules := by
+    intro r hr n h
+    classical
+    have hn : n = Sum.inr r.input := by
+      simpa [Symbol.map] using (Symbol.nonterminal.inj h.symm)
+    subst hn
+    simp [ContextFreeGrammar.substsgrammar, Finset.mem_union, Finset.mem_map]
+    right
+    exact ⟨r, hr, rfl⟩
+  preimage_of_rules := by
+    intro r hr n₀ heq
+    classical
+    have hinput : r.input = Sum.inr n₀ := by
+      simpa [Symbol.map] using (Symbol.nonterminal.inj heq).symm
+    simp [ContextFreeGrammar.substsgrammar, Finset.mem_union, Finset.mem_map] at hr
+    rcases hr with hr | hr
+    · rcases hr with ⟨r₀, hr₀, hr_eq⟩
+      have hr_input : r.input = Sum.inl r₀.input := by
+        simpa [ContextFreeRule.mapSymbol] using (congrArg ContextFreeRule.input hr_eq).symm
+      have : Sum.inr n₀ = Sum.inl r₀.input := by
+        simpa [hinput] using hr_input.symm
+      cases this
+    · rcases hr with ⟨r₀, hr₀, hr_eq⟩
+      have hr_input : r.input = Sum.inr r₀.input := by
+        simpa [ContextFreeRule.map] using (congrArg ContextFreeRule.input hr_eq).symm
+      have hinput' : r₀.input = n₀ := by
+        apply Sum.inr_injective
+        have : (Sum.inr r₀.input : g₁.NT ⊕ g₂.NT) = Sum.inr n₀ := by
+          simpa [hinput] using hr_input.symm
+        simpa using this
+      refine ⟨r₀, hr₀, hinput', ?_⟩
+      have : ContextFreeRule.mapSymbol (T := T) r₀ (Symbol.map Sum.inr) (Sum.inr r₀.input) = r :=
+        by simpa [ContextFreeRule.map, ContextFreeRule.mapSymbol, Symbol.map] using hr_eq
+      simpa [hinput', hr_input] using this
+
 end ContextFreeGrammar
 
 end substitution
