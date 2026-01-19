@@ -1746,13 +1746,24 @@ theorem ContextFreeGrammar.subst_lang (t: T) (g₁ g₂ : ContextFreeGrammar T)
     refine Language.ext_iff.mpr ?_
     intro w
     constructor
-    · sorry
+    · intro w_in_substgrammar
+
+      sorry
     · intro w_in_sublang
       have w'_in_origlang: ∃w' ∈ g₂.language, w ∈ substword t g₁.language w' := by
         simp only [substlang, mem_language_iff] at w_in_sublang
         exact Set.inter_nonempty.mp w_in_sublang
       obtain ⟨w', w'_in_origlang⟩ := w'_in_origlang
       rcases w'_in_origlang with ⟨ha, hb⟩
+      have w'_derives : g₂.Derives [Symbol.nonterminal g₂.initial] (w'.map Symbol.terminal) := by
+        simpa [ContextFreeGrammar.mem_language_iff] using ha
+      have w'_derives_in_subst :
+          (substsgrammar t g₁ g₂).Derives
+            [Symbol.nonterminal (Sum.inr g₂.initial)] (w'.map Symbol.terminal) := by
+        simpa [substg₂_embedding, Symbol.map] using
+          (ContextFreeGrammar.Embedding.derives_map
+            (G := substg₂_embedding t g₁ g₂) w'_derives)
+      /- TODO now show that we can derive subst t (start of g1) w, and the rest-/
       sorry
 
 end ContextFreeGrammar
