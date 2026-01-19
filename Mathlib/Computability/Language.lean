@@ -480,4 +480,4 @@ lemma substword_eq_singleton_of_not_mem (t : α) (l : Language α) {w : List α}
 
 /-- Substitute terminals in a language by `substword` and take the union of all results. -/
 def substlang (t : α) (l : Language α) (L : Language α) : Language α :=
-  { w | ∃ v ∈ L, w ∈ substword t l v }
+  { w | ∃ v ∈ l, w ∈ substword t L v }

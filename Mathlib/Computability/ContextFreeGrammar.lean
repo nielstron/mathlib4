@@ -1740,6 +1740,79 @@ noncomputable def substg₂_embedding (t : T) (g₁ g₂ : ContextFreeGrammar T)
         by simpa [ContextFreeRule.map, ContextFreeRule.mapSymbol, Symbol.map] using hr_eq
       simpa [hinput', hr_input] using this
 
+private lemma derives_substword (t : T) (g₁ g₂ : ContextFreeGrammar T) [DecidableEq T] :
+    ∀ (w' w : List T),
+      w ∈ substword t g₂.language w' →
+      (substsgrammar t g₁ g₂).Derives
+        (w'.map (fun a => substSymbol t g₁ g₂ (.terminal a)))
+        (w.map Symbol.terminal) := by
+  intro w' w hw
+  induction w' generalizing w with
+  | nil =>
+      have hw' : w ∈ (1 : Language T) := by
+        simpa [substword] using hw
+      have : w = [] := by
+        simpa [Language.mem_one] using hw'
+      subst this
+      exact ContextFreeGrammar.Derives.refl _
+  | cons a tail ih =>
+      have hw' : w ∈ subst t g₂.language a * substword t g₂.language tail := by
+        simpa [substword_head] using hw
+      rcases (Language.mem_mul.mp hw') with ⟨w₁, hw₁, w₂, hw₂, hconcat⟩
+      subst hconcat
+      by_cases h : a = t
+      · have hw₁' : w₁ ∈ g₂.language := by
+          simpa [subst, h] using hw₁
+        have w₁_derives : (substsgrammar t g₁ g₂).Derives
+            [Symbol.nonterminal (Sum.inr g₂.initial)] (w₁.map Symbol.terminal) := by
+          have hder : g₂.Derives [Symbol.nonterminal g₂.initial] (w₁.map Symbol.terminal) := by
+            simpa [ContextFreeGrammar.mem_language_iff] using hw₁'
+          simpa [substg₂_embedding, Symbol.map] using
+            (ContextFreeGrammar.Embedding.derives_map
+              (G := substg₂_embedding t g₁ g₂) hder)
+        have tail_derives :
+            (substsgrammar t g₁ g₂).Derives
+              (tail.map (fun a => substSymbol t g₁ g₂ (.terminal a)))
+              (w₂.map Symbol.terminal) := ih w₂ hw₂
+        have hhead : substSymbol t g₁ g₂ (.terminal a) =
+            Symbol.nonterminal (Sum.inr g₂.initial) := by
+          simp [substSymbol, h]
+        have head_derives :
+            (substsgrammar t g₁ g₂).Derives
+              ([substSymbol t g₁ g₂ (.terminal a)] ++
+                tail.map (fun a => substSymbol t g₁ g₂ (.terminal a)))
+              (w₁.map Symbol.terminal ++
+                tail.map (fun a => substSymbol t g₁ g₂ (.terminal a))) := by
+          simpa [hhead] using
+            (ContextFreeGrammar.Derives.append_right (g := substsgrammar t g₁ g₂)
+              w₁_derives (tail.map (fun a => substSymbol t g₁ g₂ (.terminal a))))
+        have tail_derives' :
+            (substsgrammar t g₁ g₂).Derives
+              (w₁.map Symbol.terminal ++
+                tail.map (fun a => substSymbol t g₁ g₂ (.terminal a)))
+              (w₁.map Symbol.terminal ++ w₂.map Symbol.terminal) := by
+          simpa using
+            (ContextFreeGrammar.Derives.append_left (g := substsgrammar t g₁ g₂)
+              tail_derives (w₁.map Symbol.terminal))
+        simpa [List.map_append] using head_derives.trans tail_derives'
+      · have hw₁' : w₁ = [a] := by
+          simpa [subst, h] using hw₁
+        subst hw₁'
+        have tail_derives :
+            (substsgrammar t g₁ g₂).Derives
+              (tail.map (fun a => substSymbol t g₁ g₂ (.terminal a)))
+              (w₂.map Symbol.terminal) := ih w₂ hw₂
+        have hhead : substSymbol t g₁ g₂ (.terminal a) = Symbol.terminal a := by
+          simp [substSymbol, h]
+        have : (substsgrammar t g₁ g₂).Derives
+            ([Symbol.terminal a] ++
+              tail.map (fun a => substSymbol t g₁ g₂ (.terminal a)))
+            ([Symbol.terminal a] ++ w₂.map Symbol.terminal) := by
+          simpa using
+            (ContextFreeGrammar.Derives.append_left (g := substsgrammar t g₁ g₂)
+              tail_derives [Symbol.terminal a])
+        simpa [hhead] using this
+
 theorem ContextFreeGrammar.subst_lang (t: T) (g₁ g₂ : ContextFreeGrammar T)
     [DecidableEq T] :
     (substsgrammar t g₁ g₂).language = (substlang t g₁.language g₂.language) := by
@@ -1750,21 +1823,28 @@ theorem ContextFreeGrammar.subst_lang (t: T) (g₁ g₂ : ContextFreeGrammar T)
 
       sorry
     · intro w_in_sublang
-      have w'_in_origlang: ∃w' ∈ g₂.language, w ∈ substword t g₁.language w' := by
+      have w'_in_origlang: ∃w' ∈ g₁.language, w ∈ substword t g₂.language w' := by
         simp only [substlang, mem_language_iff] at w_in_sublang
         exact Set.inter_nonempty.mp w_in_sublang
       obtain ⟨w', w'_in_origlang⟩ := w'_in_origlang
       rcases w'_in_origlang with ⟨ha, hb⟩
-      have w'_derives : g₂.Derives [Symbol.nonterminal g₂.initial] (w'.map Symbol.terminal) := by
+      have w'_derives : g₁.Derives [Symbol.nonterminal g₁.initial] (w'.map Symbol.terminal) := by
         simpa [ContextFreeGrammar.mem_language_iff] using ha
+      classical
+      letI : DecidableEq T := Classical.decEq T
       have w'_derives_in_subst :
           (substsgrammar t g₁ g₂).Derives
-            [Symbol.nonterminal (Sum.inr g₂.initial)] (w'.map Symbol.terminal) := by
-        simpa [substg₂_embedding, Symbol.map] using
+            [Symbol.nonterminal (Sum.inl g₁.initial)]
+            (w'.map (substSymbol t g₁ g₂ ∘ Symbol.terminal)) := by
+        simpa [substg₁_embedding, Symbol.map, substSymbol, Function.comp] using
           (ContextFreeGrammar.Embedding.derives_map
-            (G := substg₂_embedding t g₁ g₂) w'_derives)
-      /- TODO now show that we can derive subst t (start of g1) w, and the rest-/
-      sorry
+            (G := substg₁_embedding t g₁ g₂) w'_derives)
+      have w_derives_from_subst :
+          (substsgrammar t g₁ g₂).Derives
+            (w'.map (substSymbol t g₁ g₂ ∘ Symbol.terminal))
+            (w.map Symbol.terminal) := by
+        simpa [Function.comp] using derives_substword t g₁ g₂ w' w hb
+      exact w'_derives_in_subst.trans w_derives_from_subst
 
 end ContextFreeGrammar
 
