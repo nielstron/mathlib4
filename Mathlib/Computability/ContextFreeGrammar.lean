@@ -1816,8 +1816,186 @@ private lemma derives_substword (t : T) (g₁ g₂ : ContextFreeGrammar T) [Deci
 private lemma derives_terminal_eq {g : ContextFreeGrammar T} {s t : List (Symbol T g.NT)}
     (h : g.Derives s t) (hs : ∀ x ∈ s, ∃ a : T, x = Symbol.terminal a) :
     s = t := by
-  -- TODO: prove terminal-only derivations are stationary
+  -- If s consists only of terminals, no rule can apply, so derivation is trivial
+  induction h with
+  | refl => rfl
+  | tail _ hprod ih =>
+    -- If we have s →* u → t, then first show s = u
+    have : s = _ := ih
+    subst this
+    -- Now show that no production can apply to an all-terminal string
+    rcases hprod with ⟨r, hr_mem, hr_rew⟩
+    -- A rule requires a nonterminal to match, but s has only terminals
+    have := hr_rew.nonterminal_input_mem
+    rcases hs _ this with ⟨a, ha⟩
+    cases ha
+
+-- Helper: extract terminals from derivation to all-terminal list
+private lemma extract_terminals {g : ContextFreeGrammar T}
+    {s : List (Symbol T g.NT)} {w : List T}
+    (h : g.Derives s (w.map Symbol.terminal)) :
+    ∃ w': List T, s = w'.map Symbol.terminal := by
+  induction h with
+  | refl => exact ⟨w, rfl⟩
+  | tail _ hprod ih =>
+    obtain ⟨w', rfl⟩ := ih
+    rcases hprod with ⟨r, _, hr⟩
+    -- Production requires a nonterminal, but w'.map terminal has none
+    have : Symbol.nonterminal r.input ∈ List.map Symbol.terminal w' := hr.nonterminal_input_mem
+    simp at this
+
+-- Helper: g₁ nonterminal in substsgrammar derives to terminals
+private lemma substg₁_nonterminal_derives (t : T) (g₁ g₂ : ContextFreeGrammar T)
+    [DecidableEq T] {n : g₁.NT} {w : List T}
+    (h : (substsgrammar t g₁ g₂).Derives
+      [Symbol.nonterminal (Sum.inl n)] (w.map Symbol.terminal)) :
+    ∃ w', g₁.Derives [Symbol.nonterminal n] (w'.map Symbol.terminal) ∧
+      w ∈ substword t g₂.language w' := by
   sorry
+
+-- Key lemma: any nonterminal Sum.inr n in substsgrammar (if it derives to terminals)
+-- must be g₂.initial and derives a word in g₂.language
+private lemma substg₂_derives_in_language (t : T) (g₁ g₂ : ContextFreeGrammar T)
+    [DecidableEq T] {n : g₂.NT} {w : List T}
+    (h : (substsgrammar t g₁ g₂).Derives
+      [Symbol.nonterminal (Sum.inr n)] (w.map Symbol.terminal)) :
+    n = g₂.initial ∧ w ∈ g₂.language := by
+  sorry
+
+-- General principle: derivation from nonterminal-based string to terminals
+-- The filterMap gives a string that CAN DERIVE w' in g₁
+private lemma derives_from_subst_symbols (t : T) (g₁ g₂ : ContextFreeGrammar T)
+    [DecidableEq T] :
+    ∀ (s : List (Symbol T (g₁.NT ⊕ g₂.NT))) (w : List T),
+    (substsgrammar t g₁ g₂).Derives s (w.map Symbol.terminal) →
+    (∀ x ∈ s, match x with
+      | Symbol.terminal a => a ≠ t
+      | Symbol.nonterminal (Sum.inl _) => True
+      | Symbol.nonterminal (Sum.inr n) => n = g₂.initial) →
+    ∃ w', g₁.Derives (s.filterMap (substg₁_project t g₁ g₂)) (w'.map Symbol.terminal) ∧
+      w ∈ substword t g₂.language w' := by
+  intro s w hder hs
+  classical
+  letI : DecidableEq T := Classical.decEq T
+  letI : DecidableEq g₁.NT := Classical.decEq g₁.NT
+  letI : DecidableEq g₂.NT := Classical.decEq g₂.NT
+  induction s generalizing w with
+  | nil =>
+    have : w = [] := by
+      have : ([] : List (Symbol T (g₁.NT ⊕ g₂.NT))) = w.map Symbol.terminal :=
+        derives_terminal_eq hder (by simp)
+      simp at this; exact this
+    subst this
+    use []
+    simp [substword, Language.one_def, ContextFreeGrammar.Derives.refl]
+    rfl
+  | cons head tail ih =>
+    -- Use head_tail_split to separate derivation
+    obtain ⟨u, v, hu, hv, huv⟩ :=
+      head_tail_split (g := substsgrammar t g₁ g₂) (w.map Symbol.terminal) head tail hder
+    -- Extract terminal words from u and v
+    obtain ⟨u_term, rfl⟩ : ∃ u_term, u = List.map Symbol.terminal u_term :=
+      @extract_terminals T (substsgrammar t g₁ g₂) u _ _
+    obtain ⟨v_term, rfl⟩ : ∃ v_term, v = List.map Symbol.terminal v_term :=
+      @extract_terminals T (substsgrammar t g₁ g₂) v _ _
+    have w_eq : u_term ++ v_term = w := by
+      have := huv
+      have hmap : List.map (β:=Symbol T (substsgrammar t g₁ g₂).NT) Symbol.terminal (u_term ++ v_term) = List.map Symbol.terminal w := by
+        simpa [List.map_append] using huv
+
+      have hinj : Function.Injective Symbol.terminal (β:=Symbol T (substsgrammar t g₁ g₂).NT) := by
+        intro a b h
+        cases h
+        rfl
+      have hinj_map : Injective (List.map Symbol.terminal) :=
+        (List.map_injective_iff (f := Symbol.terminal)).2 hinj
+      exact hinj_map hmap
+
+
+    subst w_eq
+    -- Apply IH to tail
+    have hs_tail : ∀ x ∈ tail, match x with
+        | Symbol.terminal a => a ≠ t
+        | Symbol.nonterminal (Sum.inl _) => True
+        | Symbol.nonterminal (Sum.inr n) => n = g₂.initial := by
+      intro x hx
+      apply hs
+      simp [hx]
+    rcases ih v_term hv hs_tail with ⟨w'_tail, hw'_tail_derives, hw'_tail_in⟩
+    -- Handle head by cases
+    cases head with
+    | terminal a =>
+      -- Terminal a (must have a ≠ t by assumption)
+      have ha_ne : a ≠ t := hs _ (by simp)
+      -- Derives only itself
+      have : u_term = [a] := by
+        have : [Symbol.terminal a] = u_term.map Symbol.terminal :=
+          derives_terminal_eq hu (by intro x hx; simp at hx; subst hx; exact ⟨a, rfl⟩)
+        simp at this
+        exact this
+      subst this
+      use [a] ++ w'_tail
+      constructor
+      · simp [List.filterMap, substg₁_project]
+        exact ContextFreeGrammar.Derives.append_right hw'_tail_derives [Symbol.terminal a]
+      · rw [substword_head]
+        apply Language.mem_mul.mpr
+        use [a], [a]
+        simp [subst, ha_ne]
+        exact ⟨rfl, w'_tail, hw'_tail_in, rfl⟩
+    | nonterminal n =>
+      cases n with
+      | inl n₁ =>
+        -- g₁ nonterminal - use the helper lemma
+        rcases substg₁_nonterminal_derives t g₁ g₂ hu with ⟨w'_head, hw'_head_derives, hw'_head_in⟩
+        use w'_head ++ w'_tail
+        constructor
+        · simp [List.filterMap, substg₁_project]
+          rw [List.map_append]
+          exact ContextFreeGrammar.Derives.append_left hw'_tail_derives [Symbol.nonterminal n₁]
+            |>.trans (ContextFreeGrammar.Derives.append_right hw'_head_derives _)
+        · rw [substword_append]
+          apply Language.mem_mul.mpr
+          exact ⟨_, hw'_head_in, _, hw'_tail_in, rfl⟩
+      | inr n₂ =>
+        -- g₂ nonterminal (must be g₂.initial)
+        have hn₂ : n₂ = g₂.initial := hs _ (by simp)
+        subst hn₂
+        -- Derives a word in g₂.language using substg₂_embedding
+        have : u_term ∈ g₂.language := by
+          -- Use substg₂_embedding to show this
+          have h_embed : (substg₂_embedding t g₁ g₂).FromEmbeddingString
+              [Symbol.nonterminal (Sum.inr g₂.initial)] := by
+            intro a ha
+            simp at ha
+            subst ha
+            exact ⟨Symbol.nonterminal g₂.initial, by simp [substg₂_embedding]⟩
+          have h_term : ∀ t' : T, ∃ t'' : T,
+              (substg₂_embedding t g₁ g₂).embed (.terminal t') = .terminal t'' := by
+            intro t'
+            exact ⟨t', by simp [substg₂_embedding]⟩
+          have hder_proj := (substg₂_embedding t g₁ g₂).derives_filterMap hu h_embed h_term
+          simp [substg₂_embedding] at hder_proj
+          have : [Symbol.nonterminal (Sum.inr g₂.initial)].filterMap (substg₂_embedding t g₁ g₂).project =
+              [Symbol.nonterminal g₂.initial] := by
+            simp [List.filterMap, substg₂_embedding]
+          rw [this] at hder_proj
+          have : (u_term.map Symbol.terminal).filterMap (substg₂_embedding t g₁ g₂).project =
+              u_term.map Symbol.terminal := by
+            induction u_term with
+            | nil => rfl
+            | cons a tail ih => simp [List.filterMap, substg₂_embedding, ih]
+          rw [this] at hder_proj
+          exact hder_proj
+        use [t] ++ w'_tail
+        constructor
+        · simp [List.filterMap, substg₁_project]
+          exact ContextFreeGrammar.Derives.append_right hw'_tail_derives [Symbol.terminal t]
+        · rw [substword_head]
+          apply Language.mem_mul.mpr
+          use u_term, u_term
+          simp [subst]
+          exact ⟨this, w'_tail, hw'_tail_in, rfl⟩
 
 private lemma derives_substword_of_derives_start (t : T) (g₁ g₂ : ContextFreeGrammar T)
     [DecidableEq T] {w : List T} :
@@ -1825,8 +2003,32 @@ private lemma derives_substword_of_derives_start (t : T) (g₁ g₂ : ContextFre
         [Symbol.nonterminal (Sum.inl g₁.initial)]
         (w.map Symbol.terminal) →
     ∃ w' ∈ g₁.language, w ∈ substword t g₂.language w' := by
-  -- TODO: induction on derivation in `substsgrammar`, reconstructing the g₁-word skeleton
-  sorry
+  intro hder
+  classical
+  letI : DecidableEq T := Classical.decEq T
+  letI : DecidableEq g₁.NT := Classical.decEq g₁.NT
+  letI : DecidableEq g₂.NT := Classical.decEq g₂.NT
+  -- The general lemma applies
+  have h_cond : ∀ x ∈ [Symbol.nonterminal (Sum.inl g₁.initial)], match x with
+      | Symbol.terminal a => a ≠ t
+      | Symbol.nonterminal (Sum.inl _) => True
+      | Symbol.nonterminal (Sum.inr n) => n = g₂.initial := by
+    intro x hx
+    simp only [List.mem_singleton] at hx
+    subst hx
+    trivial
+  rcases derives_from_subst_symbols t g₁ g₂ [Symbol.nonterminal (Sum.inl g₁.initial)] w hder h_cond with
+    ⟨w', hw'_derives, hw_in⟩
+  use w'
+  constructor
+  · -- Show w' ∈ g₁.language
+    -- filterMap [Sum.inl g₁.initial] = [g₁.initial]
+    have : [Symbol.nonterminal (Sum.inl g₁.initial)].filterMap (substg₁_project t g₁ g₂) =
+        [Symbol.nonterminal g₁.initial] := by
+      simp [List.filterMap, substg₁_project]
+    rw [this] at hw'_derives
+    exact hw'_derives
+  · exact hw_in
 
 
 
