@@ -1813,6 +1813,23 @@ private lemma derives_substword (t : T) (g₁ g₂ : ContextFreeGrammar T) [Deci
               tail_derives [Symbol.terminal a])
         simpa [hhead] using this
 
+private lemma derives_terminal_eq {g : ContextFreeGrammar T} {s t : List (Symbol T g.NT)}
+    (h : g.Derives s t) (hs : ∀ x ∈ s, ∃ a : T, x = Symbol.terminal a) :
+    s = t := by
+  -- TODO: prove terminal-only derivations are stationary
+  sorry
+
+private lemma derives_substword_of_derives_start (t : T) (g₁ g₂ : ContextFreeGrammar T)
+    [DecidableEq T] {w : List T} :
+    (substsgrammar t g₁ g₂).Derives
+        [Symbol.nonterminal (Sum.inl g₁.initial)]
+        (w.map Symbol.terminal) →
+    ∃ w' ∈ g₁.language, w ∈ substword t g₂.language w' := by
+  -- TODO: induction on derivation in `substsgrammar`, reconstructing the g₁-word skeleton
+  sorry
+
+
+
 theorem ContextFreeGrammar.subst_lang (t: T) (g₁ g₂ : ContextFreeGrammar T)
     [DecidableEq T] :
     (substsgrammar t g₁ g₂).language = (substlang t g₁.language g₂.language) := by
@@ -1820,8 +1837,13 @@ theorem ContextFreeGrammar.subst_lang (t: T) (g₁ g₂ : ContextFreeGrammar T)
     intro w
     constructor
     · intro w_in_substgrammar
-
-      sorry
+      have hder :
+          (substsgrammar t g₁ g₂).Derives
+            [Symbol.nonterminal (Sum.inl g₁.initial)] (w.map Symbol.terminal) := by
+        simpa [ContextFreeGrammar.mem_language_iff] using w_in_substgrammar
+      rcases derives_substword_of_derives_start (t := t) (g₁ := g₁) (g₂ := g₂) hder with
+        ⟨w', hw', hw⟩
+      exact ⟨w', hw', hw⟩
     · intro w_in_sublang
       have w'_in_origlang: ∃w' ∈ g₁.language, w ∈ substword t g₂.language w' := by
         simp only [substlang, mem_language_iff] at w_in_sublang
