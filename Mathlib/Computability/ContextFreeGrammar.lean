@@ -1904,14 +1904,14 @@ private lemma derives_from_subst_symbols (t : T) (g₁ g₂ : ContextFreeGrammar
     -- This relies on `u` and `v` being lists of terminals because `u ++ v` is a list of terminals.
     have hu_terminals : ∀ x ∈ u, ∃ t_val : T, x = Symbol.terminal t_val := by
       intro x hx
-      have : x ∈ u ++ v := List.mem_append_of_mem_left u v hx
+      have : x ∈ u ++ v := List.mem_append_left _ hx
       rw [huv] at this
       simp only [List.mem_map] at this
       rcases this with ⟨t_val, _, rfl⟩
       exact ⟨t_val, rfl⟩
     have hv_terminals : ∀ x ∈ v, ∃ t_val : T, x = Symbol.terminal t_val := by
       intro x hx
-      have : x ∈ u ++ v := List.mem_append_of_mem_right u v hx
+      have : x ∈ u ++ v := List.mem_append_right _ hx
       rw [huv] at this
       simp only [List.mem_map] at this
       rcases this with ⟨t_val, _, rfl⟩
