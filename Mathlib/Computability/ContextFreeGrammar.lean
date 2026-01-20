@@ -6,6 +6,7 @@ Authors: Martin Dvorak
 module
 
 public import Mathlib.Computability.Language
+import Mathlib.Data.List.Basic
 
 /-!
 # Context-Free Grammars
@@ -1830,19 +1831,25 @@ private lemma derives_terminal_eq {g : ContextFreeGrammar T} {s t : List (Symbol
     rcases hs _ this with ⟨a, ha⟩
     cases ha
 
--- Helper: extract terminals from derivation to all-terminal list
-private lemma extract_terminals {g : ContextFreeGrammar T}
-    {s : List (Symbol T g.NT)} {w : List T}
-    (h : g.Derives s (w.map Symbol.terminal)) :
-    ∃ w': List T, s = w'.map Symbol.terminal := by
-  induction h with
-  | refl => exact ⟨w, rfl⟩
-  | tail _ hprod ih =>
-    obtain ⟨w', rfl⟩ := ih
-    rcases hprod with ⟨r, _, hr⟩
-    -- Production requires a nonterminal, but w'.map terminal has none
-    have : Symbol.nonterminal r.input ∈ List.map Symbol.terminal w' := hr.nonterminal_input_mem
-    simp at this
+
+private lemma all_symbols_are_terminals_implies_is_map_terminal {N : Type*} (s : List (Symbol T N)) :
+    (∀ x ∈ s, ∃ t : T, x = Symbol.terminal t) ↔ ∃ w : List T, s = w.map Symbol.terminal := by
+  constructor
+  · intro hs
+    induction s with
+    | nil => exact ⟨[], rfl⟩
+    | cons head tail ih =>
+      have h_head := hs head (by simp)
+      rcases h_head with ⟨t_head, rfl⟩
+      have h_tail : ∀ x ∈ tail, ∃ t : T, x = Symbol.terminal t := fun x hx => hs x (by simp [hx])
+      rcases ih h_tail with ⟨w_tail, rfl⟩
+      exact ⟨t_head :: w_tail, by simp⟩
+  · intro hw
+    rcases hw with ⟨w, rfl⟩
+    intro x hx
+    simp only [List.mem_map] at hx
+    rcases hx with ⟨t_in_w, _, h_eq_x⟩
+    exact ⟨t_in_w, h_eq_x.symm⟩
 
 -- Helper: g₁ nonterminal in substsgrammar derives to terminals
 private lemma substg₁_nonterminal_derives (t : T) (g₁ g₂ : ContextFreeGrammar T)
@@ -1894,24 +1901,33 @@ private lemma derives_from_subst_symbols (t : T) (g₁ g₂ : ContextFreeGrammar
     obtain ⟨u, v, hu, hv, huv⟩ :=
       head_tail_split (g := substsgrammar t g₁ g₂) (w.map Symbol.terminal) head tail hder
     -- Extract terminal words from u and v
-    obtain ⟨u_term, rfl⟩ : ∃ u_term, u = List.map Symbol.terminal u_term :=
-      @extract_terminals T (substsgrammar t g₁ g₂) u _ _
-    obtain ⟨v_term, rfl⟩ : ∃ v_term, v = List.map Symbol.terminal v_term :=
-      @extract_terminals T (substsgrammar t g₁ g₂) v _ _
+    -- This relies on `u` and `v` being lists of terminals because `u ++ v` is a list of terminals.
+    have hu_terminals : ∀ x ∈ u, ∃ t_val : T, x = Symbol.terminal t_val := by
+      intro x hx
+      have : x ∈ u ++ v := List.mem_append_of_mem_left u v hx
+      rw [huv] at this
+      simp only [List.mem_map] at this
+      rcases this with ⟨t_val, _, rfl⟩
+      exact ⟨t_val, rfl⟩
+    have hv_terminals : ∀ x ∈ v, ∃ t_val : T, x = Symbol.terminal t_val := by
+      intro x hx
+      have : x ∈ u ++ v := List.mem_append_of_mem_right u v hx
+      rw [huv] at this
+      simp only [List.mem_map] at this
+      rcases this with ⟨t_val, _, rfl⟩
+      exact ⟨t_val, rfl⟩
+    -- Now use the new lemma to obtain u_term and v_term
+    obtain ⟨u_term, hu_eq⟩ := (all_symbols_are_terminals_implies_is_map_terminal u).mp hu_terminals
+    obtain ⟨v_term, hv_eq⟩ := (all_symbols_are_terminals_implies_is_map_terminal v).mp hv_terminals
     have w_eq : u_term ++ v_term = w := by
-      have := huv
-      have hmap : List.map (β:=Symbol T (substsgrammar t g₁ g₂).NT) Symbol.terminal (u_term ++ v_term) = List.map Symbol.terminal w := by
-        simpa [List.map_append] using huv
-
-      have hinj : Function.Injective Symbol.terminal (β:=Symbol T (substsgrammar t g₁ g₂).NT) := by
-        intro a b h
-        cases h
-        rfl
-      have hinj_map : Injective (List.map Symbol.terminal) :=
-        (List.map_injective_iff (f := Symbol.terminal)).2 hinj
-      exact hinj_map hmap
-
-
+      -- huv is (u ++ v = w.map Symbol.terminal)
+      -- After rw [hu_eq, hv_eq] at huv, huv is ((u_term.map Symbol.terminal) ++ (v_term.map Symbol.terminal) = w.map Symbol.terminal)
+      rw [hu_eq, hv_eq] at huv
+      -- simp only [List.map_append] at huv
+      -- huv is now (u_term ++ v_term).map Symbol.terminal = w.map Symbol.terminal
+      have hinj : Function.Injective (β:=Symbol T g₁.NT) Symbol.terminal := by
+        intro a b h; cases h; rfl
+      exact (List.map_injective_iff _).2 hinj huv
     subst w_eq
     -- Apply IH to tail
     have hs_tail : ∀ x ∈ tail, match x with
@@ -1921,18 +1937,29 @@ private lemma derives_from_subst_symbols (t : T) (g₁ g₂ : ContextFreeGrammar
       intro x hx
       apply hs
       simp [hx]
-    rcases ih v_term hv hs_tail with ⟨w'_tail, hw'_tail_derives, hw'_tail_in⟩
+    rcases ih v_term (hv_eq ▸ hv) hs_tail with ⟨w'_tail, hw'_tail_derives, hw'_tail_in⟩
     -- Handle head by cases
     cases head with
     | terminal a =>
       -- Terminal a (must have a ≠ t by assumption)
-      have ha_ne : a ≠ t := hs _ (by simp)
+      have ha_ne : a ≠ t := hs _ (by
+        simp_all only [ne_eq, implies_true, forall_const, List.mem_map, forall_exists_index, and_imp,
+          forall_apply_eq_imp_iff₂, Symbol.terminal.injEq, exists_eq', List.map_append, List.mem_cons, or_true,
+          forall_eq_or_imp]
+        apply Or.inl
+        rfl -- aesop generated
+      )
       -- Derives only itself
       have : u_term = [a] := by
-        have : [Symbol.terminal a] = u_term.map Symbol.terminal :=
-          derives_terminal_eq hu (by intro x hx; simp at hx; subst hx; exact ⟨a, rfl⟩)
-        simp at this
-        exact this
+        have h_u_term_eq_a : [Symbol.terminal a] = u_term.map Symbol.terminal := by
+          rw [hu_eq]
+          apply derives_terminal_eq (g := substsgrammar t g₁ g₂) hu
+          intro x hx
+          simp at hx
+          subst hx
+          exact ⟨a, rfl⟩
+        have hinj : Function.Injective Symbol.terminal := by intro _ _ h; cases h; rfl
+        exact (List.map_injective_iff _).2 hinj h_u_term_eq_a
       subst this
       use [a] ++ w'_tail
       constructor
@@ -1947,13 +1974,13 @@ private lemma derives_from_subst_symbols (t : T) (g₁ g₂ : ContextFreeGrammar
       cases n with
       | inl n₁ =>
         -- g₁ nonterminal - use the helper lemma
-        rcases substg₁_nonterminal_derives t g₁ g₂ hu with ⟨w'_head, hw'_head_derives, hw'_head_in⟩
+        rcases substg₁_nonterminal_derives t g₁ g₂ (hu_eq ▸ hu) with ⟨w'_head, hw'_head_derives, hw'_head_in⟩
         use w'_head ++ w'_tail
         constructor
         · simp [List.filterMap, substg₁_project]
-          rw [List.map_append]
-          exact ContextFreeGrammar.Derives.append_left hw'_tail_derives [Symbol.nonterminal n₁]
-            |>.trans (ContextFreeGrammar.Derives.append_right hw'_head_derives _)
+          rw [←List.map_append]
+          exact (hw'_head_derives.append_right (List.filterMap (substg₁_project t g₁ g₂) tail)).trans
+            (hw'_tail_derives.append_left (List.map Symbol.terminal w'_head))
         · rw [substword_append]
           apply Language.mem_mul.mpr
           exact ⟨_, hw'_head_in, _, hw'_tail_in, rfl⟩
@@ -1974,7 +2001,7 @@ private lemma derives_from_subst_symbols (t : T) (g₁ g₂ : ContextFreeGrammar
               (substg₂_embedding t g₁ g₂).embed (.terminal t') = .terminal t'' := by
             intro t'
             exact ⟨t', by simp [substg₂_embedding]⟩
-          have hder_proj := (substg₂_embedding t g₁ g₂).derives_filterMap hu h_embed h_term
+          have hder_proj := (substg₂_embedding t g₁ g₂).derives_filterMap (hu_eq ▸ hu) h_embed h_term
           simp [substg₂_embedding] at hder_proj
           have : [Symbol.nonterminal (Sum.inr g₂.initial)].filterMap (substg₂_embedding t g₁ g₂).project =
               [Symbol.nonterminal g₂.initial] := by
