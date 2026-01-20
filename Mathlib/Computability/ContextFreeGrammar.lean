@@ -1920,14 +1920,13 @@ private lemma derives_from_subst_symbols (t : T) (g₁ g₂ : ContextFreeGrammar
     obtain ⟨u_term, hu_eq⟩ := (all_symbols_are_terminals_implies_is_map_terminal u).mp hu_terminals
     obtain ⟨v_term, hv_eq⟩ := (all_symbols_are_terminals_implies_is_map_terminal v).mp hv_terminals
     have w_eq : u_term ++ v_term = w := by
-      -- huv is (u ++ v = w.map Symbol.terminal)
-      -- After rw [hu_eq, hv_eq] at huv, huv is ((u_term.map Symbol.terminal) ++ (v_term.map Symbol.terminal) = w.map Symbol.terminal)
       rw [hu_eq, hv_eq] at huv
-      -- simp only [List.map_append] at huv
-      -- huv is now (u_term ++ v_term).map Symbol.terminal = w.map Symbol.terminal
-      have hinj : Function.Injective (β:=Symbol T g₁.NT) Symbol.terminal := by
+      simp only [List.map_append.symm] at huv
+      have hinj_terminal : Function.Injective (@Symbol.terminal T (substsgrammar t g₁ g₂).NT) := by
         intro a b h; cases h; rfl
-      exact (List.map_injective_iff _).2 hinj huv
+      have h_map_inj : Injective (List.map (@Symbol.terminal T (substsgrammar t g₁ g₂).NT)) :=
+        (List.map_injective_iff (f := (@Symbol.terminal T (substsgrammar t g₁ g₂).NT))).mpr hinj_terminal
+      exact h_map_inj huv
     subst w_eq
     -- Apply IH to tail
     have hs_tail : ∀ x ∈ tail, match x with
@@ -1951,25 +1950,36 @@ private lemma derives_from_subst_symbols (t : T) (g₁ g₂ : ContextFreeGrammar
       )
       -- Derives only itself
       have : u_term = [a] := by
-        have h_u_term_eq_a : [Symbol.terminal a] = u_term.map Symbol.terminal := by
-          rw [hu_eq]
+        have h_u_term_eq_a : [Symbol.terminal (N := (substsgrammar t g₁ g₂).NT) a] = u_term.map Symbol.terminal := by
+          rw [hu_eq.symm]
           apply derives_terminal_eq (g := substsgrammar t g₁ g₂) hu
           intro x hx
           simp at hx
           subst hx
           exact ⟨a, rfl⟩
-        have hinj : Function.Injective Symbol.terminal := by intro _ _ h; cases h; rfl
-        exact (List.map_injective_iff _).2 hinj h_u_term_eq_a
+        have hinj : Function.Injective (@Symbol.terminal T (substsgrammar t g₁ g₂).NT) := by
+          intro a b h; cases h; rfl
+        have hinj_terminal : Function.Injective (@Symbol.terminal T (substsgrammar t g₁ g₂).NT) := by
+          intro a b h; cases h; rfl
+        have h_map_inj :
+            Injective (List.map (@Symbol.terminal T (substsgrammar t g₁ g₂).NT)) :=
+          (List.map_injective_iff (f := @Symbol.terminal T (substsgrammar t g₁ g₂).NT)).mpr hinj_terminal
+        apply (List.map_injective_iff (f:= @Symbol.terminal T (substsgrammar t g₁ g₂).NT)).2 hinj
+        simp [h_u_term_eq_a]
       subst this
       use [a] ++ w'_tail
       constructor
       · simp [List.filterMap, substg₁_project]
-        exact ContextFreeGrammar.Derives.append_right hw'_tail_derives [Symbol.terminal a]
-      · rw [substword_head]
+        exact ContextFreeGrammar.Derives.append_left hw'_tail_derives [Symbol.terminal a]
+      · simp only [List.cons_append, List.nil_append, substword_head]
         apply Language.mem_mul.mpr
-        use [a], [a]
         simp [subst, ha_ne]
-        exact ⟨rfl, w'_tail, hw'_tail_in, rfl⟩
+        use [a]
+        constructor
+        · rfl
+        · use v_term
+          simp
+          exact hw'_tail_in
     | nonterminal n =>
       cases n with
       | inl n₁ =>
@@ -1980,13 +1990,13 @@ private lemma derives_from_subst_symbols (t : T) (g₁ g₂ : ContextFreeGrammar
         · simp [List.filterMap, substg₁_project]
           rw [←List.map_append]
           exact (hw'_head_derives.append_right (List.filterMap (substg₁_project t g₁ g₂) tail)).trans
-            (hw'_tail_derives.append_left (List.map Symbol.terminal w'_head))
+            ((hw'_tail_derives.append_left (List.map Symbol.terminal w'_head)).trans (by rw [List.map_append]))
         · rw [substword_append]
           apply Language.mem_mul.mpr
           exact ⟨_, hw'_head_in, _, hw'_tail_in, rfl⟩
       | inr n₂ =>
         -- g₂ nonterminal (must be g₂.initial)
-        have hn₂ : n₂ = g₂.initial := hs _ (by simp)
+        have hn₂ : n₂ = g₂.initial := hs _ (by simp; left; rfl)
         subst hn₂
         -- Derives a word in g₂.language using substg₂_embedding
         have : u_term ∈ g₂.language := by
@@ -1996,33 +2006,38 @@ private lemma derives_from_subst_symbols (t : T) (g₁ g₂ : ContextFreeGrammar
             intro a ha
             simp at ha
             subst ha
-            exact ⟨Symbol.nonterminal g₂.initial, by simp [substg₂_embedding]⟩
+            exact ⟨Symbol.nonterminal g₂.initial, rfl⟩
           have h_term : ∀ t' : T, ∃ t'' : T,
               (substg₂_embedding t g₁ g₂).embed (.terminal t') = .terminal t'' := by
             intro t'
-            exact ⟨t', by simp [substg₂_embedding]⟩
+            exact ⟨t', rfl⟩
           have hder_proj := (substg₂_embedding t g₁ g₂).derives_filterMap (hu_eq ▸ hu) h_embed h_term
-          simp [substg₂_embedding] at hder_proj
           have : [Symbol.nonterminal (Sum.inr g₂.initial)].filterMap (substg₂_embedding t g₁ g₂).project =
               [Symbol.nonterminal g₂.initial] := by
             simp [List.filterMap, substg₂_embedding]
           rw [this] at hder_proj
+          -- simp [substg₂_embedding] at hder_proj
           have : (u_term.map Symbol.terminal).filterMap (substg₂_embedding t g₁ g₂).project =
               u_term.map Symbol.terminal := by
-            induction u_term with
+
+            induction u_term generalizing u with
             | nil => rfl
-            | cons a tail ih => simp [List.filterMap, substg₂_embedding, ih]
+            | cons a tail ih =>
+                sorry
           rw [this] at hder_proj
           exact hder_proj
         use [t] ++ w'_tail
         constructor
         · simp [List.filterMap, substg₁_project]
-          exact ContextFreeGrammar.Derives.append_right hw'_tail_derives [Symbol.terminal t]
-        · rw [substword_head]
+          exact ContextFreeGrammar.Derives.append_left hw'_tail_derives [Symbol.terminal t]
+        · simp only [List.cons_append, List.nil_append]
+          rw [substword_head]
           apply Language.mem_mul.mpr
-          use u_term, u_term
           simp [subst]
-          exact ⟨this, w'_tail, hw'_tail_in, rfl⟩
+          use u_term
+          constructor
+          · simpa using this
+          · use v_term
 
 private lemma derives_substword_of_derives_start (t : T) (g₁ g₂ : ContextFreeGrammar T)
     [DecidableEq T] {w : List T} :
