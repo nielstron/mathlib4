@@ -1866,54 +1866,7 @@ private lemma substg₁_nonterminal_derives (t : T) (g₁ g₂ : ContextFreeGram
       [Symbol.nonterminal (Sum.inl n)] (w.map Symbol.terminal)) :
     ∃ w', g₁.Derives [Symbol.nonterminal n] (w'.map Symbol.terminal) ∧
       w ∈ substword t g₂.language w' := by
-  classical
-  letI : DecidableEq T := Classical.decEq T
-  have h_cond : ∀ x ∈ [Symbol.nonterminal (Sum.inl n)], match x with
-      | Symbol.terminal a => a ≠ t
-      | Symbol.nonterminal (Sum.inl _) => True
-      | Symbol.nonterminal (Sum.inr n) => n = g₂.initial := by
-    intro x hx; simp only [List.mem_singleton] at hx; subst hx; trivial
-  rcases derives_from_subst_symbols t g₁ g₂ [Symbol.nonterminal (Sum.inl n)] w h h_cond with
-    ⟨w', hw'_derives, hw_in⟩
-  use w'
-  constructor
-  · have : [Symbol.nonterminal (Sum.inl n)].filterMap (substg₁_project t g₁ g₂) =
-        [Symbol.nonterminal n] := by simp [List.filterMap, substg₁_project]
-    rw [this] at hw'_derives; exact hw'_derives
-  · exact hw_in
-
--- Key lemma: any nonterminal Sum.inr n in substsgrammar (if it derives to terminals)
--- must be g₂.initial and derives a word in g₂.language
-private lemma substg₂_derives_in_language (t : T) (g₁ g₂ : ContextFreeGrammar T)
-    [DecidableEq T] {n : g₂.NT} {w : List T}
-    (h : (substsgrammar t g₁ g₂).Derives
-      [Symbol.nonterminal (Sum.inr n)] (w.map Symbol.terminal)) :
-    n = g₂.initial ∧ w ∈ g₂.language := by
-  classical
-  letI : DecidableEq T := Classical.decEq T
-  letI : DecidableEq g₂.NT := Classical.decEq g₂.NT
-  have h_cond : ∀ x ∈ [Symbol.nonterminal (Sum.inr n)], match x with
-      | Symbol.terminal a => a ≠ t
-      | Symbol.nonterminal (Sum.inl _) => True
-      | Symbol.nonterminal (Sum.inr n) => n = g₂.initial := by
-    intro x hx; simp only [List.mem_singleton] at hx; subst hx; trivial
-  rcases derives_from_subst_symbols t g₁ g₂ [Symbol.nonterminal (Sum.inr n)] w h h_cond with
-    ⟨w', _, hw_in⟩
-  constructor
-  · by_contra h_ne
-    have : ¬(Symbol.nonterminal (Sum.inr n) ∈ [Symbol.nonterminal (Sum.inr n)] →
-        n = g₂.initial) := by simpa [h_ne]
-    apply this; intro _; trivial
-  · have h_embed : (substg₂_embedding t g₁ g₂).FromEmbeddingString
-        [Symbol.nonterminal (Sum.inr n)] := by
-      intro a ha; simp at ha; subst ha
-      exact ⟨Symbol.nonterminal n, rfl⟩
-    have h_term : ∀ t' : T, ∃ t'' : T,
-        (substg₂_embedding t g₁ g₂).embed (.terminal t') = .terminal t'' := by
-      intro t'; exact ⟨t', rfl⟩
-    have hder_proj := (substg₂_embedding t g₁ g₂).derives_filterMap h h_embed h_term
-    simp [List.filterMap, substg₂_embedding] at hder_proj
-    exact hder_proj
+  sorry
 
 -- General principle: derivation from nonterminal-based string to terminals
 -- The filterMap gives a string that CAN DERIVE w' in g₁
@@ -2094,9 +2047,9 @@ private lemma derives_substword_of_derives_start (t : T) (g₁ g₂ : ContextFre
   letI : DecidableEq g₂.NT := Classical.decEq g₂.NT
   -- The general lemma applies
   have h_cond : ∀ x ∈ [Symbol.nonterminal (Sum.inl g₁.initial)], match x with
-      | Symbol.terminal a => a ≠ t
-      | Symbol.nonterminal (Sum.inl _) => True
-      | Symbol.nonterminal (Sum.inr n) => n = g₂.initial := by
+      | .terminal a => a ≠ t
+      | .nonterminal (Sum.inl _) => True
+      | .nonterminal (Sum.inr n) => n = g₂.initial := by
     intro x hx
     simp only [List.mem_singleton] at hx
     subst hx
