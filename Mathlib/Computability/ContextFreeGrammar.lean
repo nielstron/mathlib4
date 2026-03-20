@@ -6,7 +6,6 @@ Authors: Martin Dvorak
 module
 
 public import Mathlib.Computability.Language
-public import Mathlib.Data.List.Lemmas
 
 /-!
 # Context-Free Grammars
@@ -24,7 +23,6 @@ nonterminal symbols that are referred to by its finitely many rules.
 
 ## Main theorems
 * `Language.IsContextFree.reverse`: The class of context-free languages is closed under reversal.
-
 -/
 
 @[expose] public section
@@ -237,317 +235,6 @@ lemma language_eq_zero_of_forall_input_ne_initial (hg : ∀ r ∈ g.rules, r.inp
 
 end ContextFreeGrammar
 
-namespace ContextFreeRule
-
-namespace Rewrites
-
-/--
-If a rule `r` rewrites `u` to `v`, and we map symbols via `f` such that `r` maps to `r'`, then
-`r'` rewrites `f(u)` to `f(v)`.
--/
-theorem map {T N T' N'} (f : Symbol T N → Symbol T' N')
-    (r : ContextFreeRule T N) (r' : ContextFreeRule T' N')
-    (u v : List (Symbol T N)) (h : r.Rewrites u v)
-    (h_input : f (Symbol.nonterminal r.input) = Symbol.nonterminal r'.input)
-    (h_output : r'.output = r.output.map f) :
-    r'.Rewrites (u.map f) (v.map f) := by
-      induction h generalizing f r' with
-      | head s =>
-        rw [ List.map_cons, List.map_append ]
-        exact h_input.symm ▸ h_output.symm ▸ ( by tauto )
-      | @cons x _ _ h_rec ih =>
-        simp only [List.map_cons]
-        exact ContextFreeRule.Rewrites.cons (f x) (ih f r' h_input h_output)
-
-/--
-If injective `f` maps `r` to `r'` and `r'` rewrites `u.map f` to `v'`, then `v'` is the image
-of some `v` such that `r` rewrites `u` to `v`.
--/
-lemma map_inv {T N T' N'} (f : Symbol T N → Symbol T' N')
-    (hf : Function.Injective f)
-    (r : ContextFreeRule T N) (r' : ContextFreeRule T' N')
-    (u : List (Symbol T N)) (v' : List (Symbol T' N'))
-    (h : r'.Rewrites (u.map f) v')
-    (h_input : f (Symbol.nonterminal r.input) = Symbol.nonterminal r'.input)
-    (h_output : r'.output = r.output.map f) :
-    ∃ v, v' = v.map f ∧ r.Rewrites u v := by
-      obtain ⟨x, y, hx, hy, hv'⟩ :
-          ∃ x y : List (Symbol T N),
-            u = x ++ [Symbol.nonterminal r.input] ++ y ∧
-            v' = List.map f x ++ List.map f r.output ++ List.map f y := by
-        obtain ⟨x', y', hx', hy', hv'⟩ :
-            ∃ x' y' : List (Symbol T' N'),
-              List.map f u = x' ++ [Symbol.nonterminal r'.input] ++ y' ∧
-              v' = x' ++ r'.output ++ y' := by
-          exact exists_parts h
-        obtain ⟨x, y, hx, hy, hv'⟩ :
-            ∃ x y : List (Symbol T N),
-              u = x ++ [Symbol.nonterminal r.input] ++ y ∧
-              List.map f x = x' ∧ List.map f y = y' := by
-          have h_split : List.map f u =
-              List.map f (u.take (List.length x')) ++
-              [Symbol.nonterminal r'.input] ++
-              List.map f (u.drop (List.length x' + 1)) := by
-            convert hx' using 1
-            rw [ ← List.take_append_drop ( List.length x' + 1 ) u, List.map_append ] at *
-            aesop
-          refine ⟨ List.take x'.length u, List.drop ( x'.length + 1 ) u, ?_, ?_, ?_ ⟩
-          · apply List.map_injective_iff.mpr hf
-            rw [List.map_append, List.map_append, List.map_singleton, h_input]
-            exact h_split
-          · have : List.take (List.length x') (List.map f u) =
-                List.map f (List.take x'.length u) := by rw [ List.map_take ]
-            rw [ ← this, hx', List.take_append_of_le_length ] <;> simp
-          · replace h_split := congr_arg (fun z => z.drop (x'.length + 1)) h_split
-            simp_all [ List.drop_append ]
-        aesop
-      use x ++ r.output ++ y
-      exact ⟨ by simp , by rw [ hx ]; exact rewrites_of_exists_parts r x y ⟩
-
-/--
-If a rule rewrites `u` to `v`, then any terminal in `v` is either in `u` or in the output of
-the rule.
--/
-lemma mem_terminal_of_mem_target {T N : Type} (r : ContextFreeRule T N)
-    (u v : List (Symbol T N)) (h : r.Rewrites u v) (a : T) (ha : Symbol.terminal a ∈ v) :
-    Symbol.terminal a ∈ u ∨ Symbol.terminal a ∈ r.output := by
-      have h_rewrite : ∃ x y : List (Symbol T N),
-          u = x ++ [Symbol.nonterminal r.input] ++ y ∧ v = x ++ r.output ++ y := by
-        exact exists_parts h
-      grind +ring
-
-/--
-If `r1` rewrites `u` to `v`, `r2` rewrites `v` to `w`, and `r2.input` is not in `r1.output`,
-then we can swap the order: apply `r2` first to reach some `v'`, then `r1` to reach `w`.
--/
-lemma commute_of_not_mem_output {T N : Type}
-    (r1 r2 : ContextFreeRule T N)
-    (u v w : List (Symbol T N))
-    (h1 : r1.Rewrites u v)
-    (h2 : r2.Rewrites v w)
-    (h_disjoint : Symbol.nonterminal r2.input ∉ r1.output) :
-    ∃ v', r2.Rewrites u v' ∧ r1.Rewrites v' w := by
-      revert h1 h2 h_disjoint
-      intro h1 h2 h3
-      rw [ ContextFreeRule.rewrites_iff ] at *
-      obtain ⟨p1, q1, hp1, hv1⟩ := h1
-      obtain ⟨p2, q2, hp2, hw2⟩ := h2
-      have h_split :
-          ∃ z, p2 = p1 ++ r1.output ++ z ∧ q1 = z ++ [Symbol.nonterminal r2.input] ++ q2 ∨
-               p1 = p2 ++ [Symbol.nonterminal r2.input] ++ z ∧ q2 = z ++ r1.output ++ q1 := by
-        have h_split : p1 ++ r1.output ++ q1 = p2 ++ Symbol.nonterminal r2.input :: q2 := by
-          simpa [List.cons_append] using (show p1 ++ r1.output ++ q1 =
-              p2 ++ [Symbol.nonterminal r2.input] ++ q2 by rw [ ← hv1, hp2 ])
-        have := List.split_commute_of_not_mem p1 q1 p2 q2 r1.output
-          (Symbol.nonterminal r2.input) h_split h3
-        aesop
-      rcases h_split with ⟨ z, h | h ⟩ <;> simp_all only [List.append_assoc, List.cons_append,
-        List.nil_append, rewrites_iff, ↓existsAndEq, and_true]
-      · grind
-      · exact ⟨ p2, z ++ Symbol.nonterminal r1.input :: q1, rfl,
-          p2 ++ r2.output ++ z, q1,
-          by simp [List.append_assoc], by simp [List.append_assoc] ⟩
-
-/--
-If a rule rewrites a concatenation `u ++ v`, the rewrite must occur entirely within `u` or entirely
-within `v`.
--/
-lemma split_append {T N : Type} (r : ContextFreeRule T N)
-    (u v w : List (Symbol T N))
-    (h : r.Rewrites (u ++ v) w) :
-    (∃ u', r.Rewrites u u' ∧ w = u' ++ v) ∨ (∃ v', r.Rewrites v v' ∧ w = u ++ v') := by
-      obtain ⟨s, t, hs, ht⟩ :
-          ∃ s t : List (Symbol T N),
-            u ++ v = s ++ [Symbol.nonterminal r.input] ++ t ∧ w = s ++ r.output ++ t := by
-        exact exists_parts h
-      rcases Classical.em (s.length < u.length) with h_cases | h_cases
-      · -- Since $s$ is a prefix of $u$, we can split $u$ into $s$ and some $u'$.
-        obtain ⟨u', hu'⟩ :
-            ∃ u' : List (Symbol T N), u = s ++ [Symbol.nonterminal r.input] ++ u' := by
-          rw [ List.append_eq_append_iff ] at hs
-          rcases hs with ( ⟨ as, hs, ht ⟩ | ⟨ bs, rfl, ht ⟩ )
-          · simp_all only [List.append_assoc]
-            replace hs := congr_arg List.length hs
-            simp_all +arith
-            cases as <;> simp_all +arith
-          · exact ⟨bs, rfl⟩
-        exact Or.inl ⟨ s ++ r.output ++ u', by
-          rw [ ContextFreeRule.rewrites_iff ]
-          exact ⟨ s, u', hu', rfl ⟩, by
-          aesop ⟩
-      · -- Since $s.length \geq u.length$, we have $s = u ++ s'$ for some $s'$.
-        obtain ⟨s', hs'⟩ : ∃ s', s = u ++ s' := by
-          simp only [List.append_assoc, List.singleton_append, not_lt] at hs h_cases
-          rw [ List.append_eq_append_iff ] at hs
-          rcases hs with ⟨as, rfl, _⟩ | ⟨bs, rfl, _⟩
-          · exact ⟨as, rfl⟩
-          · simp only [List.length_append] at h_cases
-            have : bs = [] := List.eq_nil_of_length_eq_zero (by omega)
-            exact ⟨[], by simp [this]⟩
-        simp_all only [List.append_assoc, List.cons_append, List.nil_append,
-          List.append_cancel_left_eq, exists_eq_right']
-        exact Or.inr <| by
-          rw [ ContextFreeRule.rewrites_iff ]
-          aesop
-
-end Rewrites
-
-end ContextFreeRule
-
-namespace ContextFreeGrammar
-
-/--
-If a grammar derives `w_i` from `s_i` for each `i`, then it derives the concatenation of `w_i`s
-from the sequence of `s_i`s.
--/
-theorem Derives.distrib_prod {T : Type} {g : ContextFreeGrammar T}
-    (S : List (Symbol T g.NT)) (W : List (List (Symbol T g.NT)))
-    (h : List.Forall₂ (fun s w => g.Derives [s] w) S W) :
-    g.Derives S W.flatten := by
-      induction h with
-      | nil => constructor
-      | @cons s w S W h_sw h_rest ih =>
-        have h_trans : g.Derives (s :: S) (w ++ S) := by
-          have h_trans :
-              ∀ {u v : List (Symbol T g.NT)}, g.Derives u v →
-              ∀ {S : List (Symbol T g.NT)}, g.Derives (u ++ S) (v ++ S) := by
-            intro u v h S
-            induction h with
-            | refl => exact Relation.ReflTransGen.refl
-            | tail _ h_step' ih_inner => exact ih_inner.tail (Produces.append_right h_step' S)
-          exact h_trans h_sw
-        have h_trans : g.Derives (w ++ S) (w ++ W.flatten) := by
-          exact append_left ih w
-        (expose_names; exact trans h_trans_1 h_trans)
-
-/--
-If a context-free grammar produces `w` from `u ++ v`, then the production must occur entirely within
-`u` or entirely within `v`.
--/
-lemma Produces.split_append {T : Type} {g : ContextFreeGrammar T}
-    (u v w : List (Symbol T g.NT))
-    (h : g.Produces (u ++ v) w) :
-    (∃ u', g.Produces u u' ∧ w = u' ++ v) ∨ (∃ v', g.Produces v v' ∧ w = u ++ v') := by
-      obtain ⟨ r, hr, h ⟩ := h
-      have h_split :
-          (∃ u', r.Rewrites u u' ∧ w = u' ++ v) ∨
-          (∃ v', r.Rewrites v v' ∧ w = u ++ v') := by
-        have h_split :
-            ∀ r : ContextFreeRule T g.NT, ∀ u v w : List (Symbol T g.NT),
-              r.Rewrites (u ++ v) w →
-              (∃ u', r.Rewrites u u' ∧ w = u' ++ v) ∨
-              (∃ v', r.Rewrites v v' ∧ w = u ++ v') := by
-          intros r u v w h
-          induction u generalizing v w with
-          | nil => aesop
-          | cons hd tl ih =>
-            cases h with
-            | head s => exact Or.inl ⟨ r.output ++ tl, by tauto, by simp  [ List.append_assoc ] ⟩
-            | @cons x _ s₂ h_rec =>
-              have ih := ih v s₂ h_rec
-              cases ih with
-              | inl h_ih =>
-                simp_all only [List.cons_append, List.cons.injEq, true_and]
-                obtain ⟨ u', hu', rfl ⟩ := h_ih
-                exact Or.inl ⟨ hd :: u', by exact ContextFreeRule.Rewrites.cons hd hu', by simp ⟩
-              | inr h_ih => simp_all
-        exact h_split r u v w h
-      exact Or.imp
-        ( fun ⟨ u', hu', hw ⟩ => ⟨ u', ⟨ r, hr, hu' ⟩, hw ⟩ )
-        ( fun ⟨ v', hv', hw ⟩ => ⟨ v', ⟨ r, hr, hv' ⟩, hw ⟩ )
-        h_split
-
-/--
-If a context-free grammar derives `w` from `u ++ v`, then `w` can be split into `u' ++ v'` such
-that `u` derives `u'` and `v` derives `v'`.
--/
-lemma Derives.split_append {T : Type} {g : ContextFreeGrammar T}
-    (u v w : List (Symbol T g.NT))
-    (h : g.Derives (u ++ v) w) :
-    ∃ u' v', g.Derives u u' ∧ g.Derives v v' ∧ w = u' ++ v' := by
-      revert h w u v
-      intro u v w h_deriv
-      induction h_deriv with
-      | refl => exact ⟨ u, v, by constructor, by constructor, rfl ⟩
-      | tail _ h_step ih =>
-        obtain ⟨ u', v', hu', hv', rfl ⟩ := ih
-        rcases ContextFreeGrammar.Produces.split_append u' v' _ h_step
-          with ⟨ u'', hu'', rfl ⟩ | ⟨ v'', hv'', rfl ⟩
-        · exact ⟨ u'', v', hu'.trans ( Relation.ReflTransGen.single hu'' ), hv', rfl ⟩
-        · exact ⟨ u', v'', hu', hv'.trans ( Relation.ReflTransGen.single hv'' ), rfl ⟩
-
-/-- Terminal-only strings are never rewritten -/
-lemma no_rewrites_of_all_terminal {T N : Type} (r : ContextFreeRule T N)
-    (w : List T) (v : List (Symbol T N)) :
-    ¬ r.Rewrites (w.map Symbol.terminal) v := by
-  intro h
-  rw [ContextFreeRule.rewrites_iff] at h
-  obtain ⟨p, q, hp, _⟩ := h
-  have : Symbol.nonterminal r.input ∈ w.map Symbol.terminal := by
-    rw [hp]; simp
-  simp at this
-lemma no_produces_of_all_terminal {T : Type} (g : ContextFreeGrammar T)
-    (w : List T) (v : List (Symbol T g.NT)) :
-    ¬ g.Produces (w.map Symbol.terminal) v := by
-  rintro ⟨r, _, hr⟩
-  exact no_rewrites_of_all_terminal r w v hr
-lemma derives_of_all_terminal {T : Type} (g : ContextFreeGrammar T)
-    (w : List T) (v : List (Symbol T g.NT)) :
-    g.Derives (w.map Symbol.terminal) v → v = w.map Symbol.terminal := by
-  intro h
-  induction h with
-  | refl => rfl
-  | tail _ h2 ih => subst ih; exact absurd h2 (no_produces_of_all_terminal g w _)
-
-/--
-If the rules in `R₁` never produce the input nonterminal of any rule in `R₂`,
-then a single `R₁`-step followed by any number of `R₂`-steps can be reordered
-to put the `R₂`-steps first.
--/
-private lemma produces_commute_derives_of_not_mem_output {T N : Type}
-    {R₁ R₂ : Finset (ContextFreeRule T N)}
-    (h : ∀ r₁ ∈ R₁, ∀ r₂ ∈ R₂, Symbol.nonterminal r₂.input ∉ r₁.output)
-    (r₁ : ContextFreeRule T N) (hr₁ : r₁ ∈ R₁)
-    {u v : List (Symbol T N)} (hrew₁ : r₁.Rewrites u v)
-    {w : List (Symbol T N)}
-    (h₂ : Relation.ReflTransGen (fun u v => ∃ r ∈ R₂, r.Rewrites u v) v w) :
-    ∃ v', Relation.ReflTransGen (fun u v => ∃ r ∈ R₂, r.Rewrites u v) u v' ∧
-          ∃ r ∈ R₁, r.Rewrites v' w := by
-  induction h₂ with
-  | refl => exact ⟨u, Relation.ReflTransGen.refl, r₁, hr₁, hrew₁⟩
-  | tail _ hstep ih =>
-    obtain ⟨v'', hv''₁, r₁', hr₁', hrew₁'⟩ := ih
-    obtain ⟨r₂, hr₂, hrew₂⟩ := hstep
-    obtain ⟨x, hrew₂', hrew₁''⟩ :=
-      ContextFreeRule.Rewrites.commute_of_not_mem_output r₁' r₂ v'' _ _ hrew₁' hrew₂
-        (h r₁' hr₁' r₂ hr₂)
-    exact ⟨x, hv''₁.tail ⟨r₂, hr₂, hrew₂'⟩, r₁', hr₁', hrew₁''⟩
-
-/--
-If the rules in `R₁` never produce the input nonterminal of any rule in `R₂`,
-then any `R₁`-derivation followed by any `R₂`-derivation can be reordered to
-put all `R₂`-steps first.
--/
-theorem derives_commute_of_not_mem_output {T N : Type}
-    {R₁ R₂ : Finset (ContextFreeRule T N)}
-    (h : ∀ r₁ ∈ R₁, ∀ r₂ ∈ R₂, Symbol.nonterminal r₂.input ∉ r₁.output)
-    {u v w : List (Symbol T N)}
-    (h₁ : Relation.ReflTransGen (fun u v => ∃ r ∈ R₁, r.Rewrites u v) u v)
-    (h₂ : Relation.ReflTransGen (fun u v => ∃ r ∈ R₂, r.Rewrites u v) v w) :
-    ∃ v',
-      Relation.ReflTransGen (fun u v => ∃ r ∈ R₂, r.Rewrites u v) u v' ∧
-      Relation.ReflTransGen (fun u v => ∃ r ∈ R₁, r.Rewrites u v) v' w := by
-  induction h₁ generalizing w with
-  | refl => exact ⟨w, h₂, Relation.ReflTransGen.refl⟩
-  | tail _ hstep ih =>
-    obtain ⟨r_step, hr_step, hrew_step⟩ := hstep
-    obtain ⟨v', hv'₁, r', hr', hrew'⟩ :=
-      produces_commute_derives_of_not_mem_output h r_step hr_step hrew_step h₂
-    obtain ⟨x, hx₁, hx₂⟩ := ih hv'₁
-    exact ⟨x, hx₁, hx₂.tail ⟨r', hr', hrew'⟩⟩
-
-end ContextFreeGrammar
-
 /-- Context-free languages are defined by context-free grammars. -/
 def Language.IsContextFree (L : Language T) : Prop :=
   ∃ g : ContextFreeGrammar T, g.language = L
@@ -646,23 +333,21 @@ alias ⟨_, Generates.reverse⟩ := generates_reverse
 
 end ContextFreeGrammar
 
-lemma Language.IsContextFree.reverse_impl (L : Language T) :
+lemma Language.IsContextFree.reverse (L : Language T) :
   L.IsContextFree → L.reverse.IsContextFree := by
   rintro ⟨g, rfl⟩
   exact ⟨g.reverse, by simp⟩
 
 /-- The class of context-free languages is closed under reversal. -/
 @[simp]
-theorem Language.IsContextFree.reverse (L : Language T) :
+theorem Language.IsContextFree.reverse_iff (L : Language T) :
     L.reverse.IsContextFree ↔ L.IsContextFree := by
       constructor
       · intro h
         have hL : L.reverse.reverse.IsContextFree := by
-          exact reverse_impl L.reverse h
-        simp only [reverse_reverse] at h hL
+          exact reverse L.reverse h
+        simp only [reverse_reverse] at hL
         exact hL
-      · exact reverse_impl L
-
-
+      · exact reverse L
 
 end closure_reversal
